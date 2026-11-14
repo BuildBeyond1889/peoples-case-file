@@ -1,33 +1,29 @@
 #!/usr/bin/env python3
-"""Probe 8: MiEnviro repository base + public notice list; KY pending-approval documents."""
-import json, re, urllib.parse, urllib.request
+"""Probe 9: can a browser call GLEIF directly (CORS)? Shape of children / ultimate-children lists."""
+import json, urllib.request
 UA = 'PeoplesCaseFile/0.2 (public-records research; https://github.com/BuildBeyond1889/peoples-case-file)'
-def get(url, data=None, headers=None):
-    h = {'User-Agent': UA, 'Accept': 'application/json, text/plain, */*', **(headers or {})}
+def get(url, origin=None, method='GET'):
+    h = {'User-Agent': UA, 'Accept': 'application/vnd.api+json'}
+    if origin: h['Origin'] = origin
+    if method == 'OPTIONS': h['Access-Control-Request-Method'] = 'GET'
+    req = urllib.request.Request(url, headers=h, method=method)
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h), timeout=90) as r:
-            return r.status, r.geturl(), r.read().decode('utf-8', 'replace')
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, dict(r.headers), r.read()
     except urllib.error.HTTPError as e:
-        return f'HTTP {e.code}', url, e.read().decode('utf-8', 'replace')[:600]
-    except Exception as e:
-        return repr(e), url, ''
-s, u, js = get('https://mienviro.michigan.gov/ncore/Scripts/ncore.app.min.js?0CF385D40D17CB77')
-for pat in (r'factory\("repository".{0,1500}', r'getList:function.{0,600}', r'apiRoot.{0,200}', r'"api/".{0,200}', r'vroot.{0,120}'):
-    for m in list(re.finditer(pat, js))[:2]: print('JS', pat, '::', m.group(0)[:1500])
-s, u, h = get('https://mienviro.michigan.gov/ncore/external/home')
-for m in re.finditer(r'.{0,150}(apiRoot|vroot|baseUrl|apiUrl|appSettings).{0,300}', h): print('HOME', m.group(0)[:500])
-for path in ('api/publicnoticeslist', 'ncore/api/publicnoticeslist', 'ncore/external/api/publicnoticeslist', 'ncore/api/external/publicnoticeslist'):
-    for q in ('', '?$top=5', '?pageSize=5&page=1'):
-        s, u, r = get('https://mienviro.michigan.gov/' + path + q)
-        print('MI', path + q, s, r[:700].replace('\n', ' '))
-print('\n== KY documents ==')
-B = 'https://dep.gateway.ky.gov/eSearch.WebApi/'
-s, u, r = get(B + 'api/PendingApproval/Search', json.dumps({'County': 'Harlan'}).encode(), {'Content-Type': 'application/json'})
-rows = json.loads(r)
-print('rows', len(rows)); print('milestones', sorted({x['CurrentMilestone'] for x in rows}))
-print('activity types', sorted({x['ActivityType'] for x in rows}))
-for row in [x for x in rows if x.get('DetailRows')][:3]:
-    s, u, d = get(B + 'api/pendingapproval/document/' + urllib.parse.quote(json.dumps(row)))
-    print('DOC', row['AgencyName'], s, d[:1500])
-s, u, r = get(B + 'api/PendingApproval/Search', json.dumps({'County': 'Genesee'}).encode(), {'Content-Type': 'application/json'})
-print('KY Genesee sanity', s, r[:100])
+        return e.code, dict(e.headers), e.read()
+O = 'https://buildbeyond1889.github.io'
+for u in ('https://api.gleif.org/api/v1/lei-records?filter[fulltext]=Alpha%20Metallurgical&page[size]=3',
+          'https://api.gleif.org/api/v1/fuzzycompletions?field=fulltext&q=Peabody%20Energy'):
+    s, h, b = get(u, O)
+    print(u, s, {k: v for k, v in h.items() if k.lower().startswith('access-control')}, b[:300])
+s, h, b = get('https://api.gleif.org/api/v1/lei-records?filter[fulltext]=Peabody', O, 'OPTIONS'); print('OPTIONS', s, {k: v for k, v in h.items() if k.lower().startswith('access-control')})
+# Peabody Energy: children
+s, h, b = get('https://api.gleif.org/api/v1/lei-records?filter[entity.legalName]=PEABODY%20ENERGY%20CORPORATION')
+d = json.loads(b)['data']; print('peabody', [(x['id'], x['attributes']['entity']['legalName']['name']) for x in d])
+if d:
+    lei = d[0]['id']
+    for rel in ('direct-children', 'ultimate-children'):
+        s, h, b = get(f'https://api.gleif.org/api/v1/lei-records/{lei}/{rel}?page[size]=100')
+        j = json.loads(b) if s == 200 else {}
+        print(rel, s, (j.get('meta') or {}).get('pagination'), [(x['attributes']['entity']['legalName']['name'], x['attributes']['entity']['legalAddress'].get('country')) for x in j.get('data', [])][:15])
