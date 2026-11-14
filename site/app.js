@@ -50,6 +50,7 @@
   let meta = { sample: true, pulled: null };
   let families = {};      // controller_id -> family
   let mineById = {};      // msha mine id -> feature
+  let facFeatures = [];
   const intro = $('detailBody').innerHTML;
 
   async function loadData() {
@@ -65,6 +66,7 @@
     }
     $('fresh').innerHTML = meta.sample ? '<span class="sample">SAMPLE DATA</span>' : 'DATA PULLED ' + esc(meta.pulled) + ' · ARCHIVED';
     for (const f of (byLayer.mines || { features: [] }).features) mineById[f.properties.ids?.msha_mine] = f;
+    facFeatures = (byLayer.facilities || { features: [] }).features;
 
     for (const L of LAYERS) {
       const data = byLayer[L.id] || { type: 'FeatureCollection', features: [] };
@@ -255,6 +257,51 @@
   let pro = false; try { pro = localStorage.getItem('pcfPro') === '1'; } catch (e) {}
   setMode(pro);
 
-  map.on('load', loadData);
+  let markReady; const ready = new Promise((r) => (markReady = r));
+  map.on('load', () => loadData().then(markReady, markReady));
+
+  // ---- Home page vs map (hash routing: '' = home, '#map', '#map/harlan', '#map/flint', '#map/flags')
+  const PLACES = { harlan: { center: [-83.25, 36.87], zoom: 10 }, flint: { center: [-83.69, 43.01], zoom: 11 } };
+  async function route() {
+    const h = location.hash.replace(/^#/, '');
+    const onMap = h.startsWith('map');
+    document.body.classList.toggle('on-home', !onMap);
+    if (!onMap) { window.scrollTo(0, 0); return; }
+    requestAnimationFrame(() => map.resize());
+    const sub = h.split('/')[1];
+    if (PLACES[sub]) map.jumpTo(PLACES[sub]);
+    if (sub === 'flags') {
+      await ready;
+      const cb = $('flagOnly'); if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+    }
+  }
+  window.addEventListener('hashchange', route);
+  route();
+
+  $('homeSearch').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const v = $('hq').value.trim(); if (!v) return;
+    $('q').value = v;
+    location.hash = '#map';
+    await ready;
+    $('search').requestSubmit();
+  });
+
+  ready.then(() => {
+    const mines = Object.values(mineById);
+    const facs = facFeatures;
+    const flagged = facs.filter((f) => (f.properties.flag_count || 0) > 0).length;
+    const linked = mines.filter((f) => f.properties.has_epa).length;
+    const cites = mines.reduce((a, f) => a + (f.properties.citations || 0), 0);
+    if (meta.sample) return;
+    $('homeStats').innerHTML = [
+      [num(mines.length), 'Harlan County mines mapped'],
+      [num(cites), 'mine safety citations rolled up'],
+      [num(facs.length), 'EPA-regulated sites'],
+      [num(flagged), 'silence-detector flags'],
+      [esc(meta.pulled), 'records pulled, archived'],
+    ].map(([v, k]) => `<div><span class="v">${v}</span><span class="k">${k}</span></div>`).join('');
+    $('caseHarlan').textContent = `${num(mines.length)} mines, ${num(Object.keys(families).length)} controllers, ${num(linked)} mines linked to EPA water permits.`;
+  });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

@@ -10,11 +10,12 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
-<body>
+<body class="on-home">
 <header class="top">
-  <div class="brand"><span class="wordmark">People's Case File</span><span class="eyebrow">CURTAIN PULLER</span></div>
+  <a class="brand" href="#" aria-label="Home"><span class="wordmark">People's Case File</span><span class="eyebrow">CURTAIN PULLER</span></a>
+  <nav class="views" aria-label="Views"><a href="#" id="navHome">Home</a><a href="#map" id="navMap">Map</a></nav>
   <form id="search" class="search" role="search">
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <label for="q" class="vh">Address, place, mine or company</label>
@@ -27,6 +28,30 @@
   </div>
   <span class="pulled" id="fresh">Loading…</span>
 </header>
+<section id="home" class="home" aria-label="Home">
+  <div class="hero">
+    <p class="eyebrow">FREE · PUBLIC RECORDS ONLY · EVERY FACT SOURCED</p>
+    <h1 class="serif">Who’s <i>really</i> behind it?</h1>
+    <p class="lede">Type a mine, a company, or an address. We pull the public records and stitch the scattered companies back into one family.</p>
+    <form id="homeSearch" class="bigsearch" role="search">
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <label for="hq" class="vh">Search mines, companies or addresses</label>
+      <input id="hq" type="search" placeholder="Try “Panther”, “Nally & Hamilton”, or “Cumberland, KY”" autocomplete="off">
+      <button type="submit">Pull the curtain</button>
+    </form>
+  </div>
+  <div class="ways">
+    <a class="way" href="#map/harlan"><span class="eyebrow">01</span><b>Start from a place</b><span>Your town, a creek, a road. See every mine and permitted site around it, and who runs them.</span></a>
+    <a class="way" href="#map/harlan"><span class="eyebrow">02</span><b>Start from a company</b><span>Search a mine operator or controller. Open its family: every mine, every citation, every penalty.</span></a>
+    <a class="way hot" href="#map/flags"><span class="eyebrow">03</span><b>Start from the silence</b><span>Sites with serious violations and little or no response from regulators.</span></a>
+  </div>
+  <h2 class="serif sect">Pilot areas</h2>
+  <div class="cases">
+    <a class="case coral" href="#map/harlan"><span class="eyebrow">HARLAN COUNTY, KY · COAL</span><b>Who ran the mines, and what it cost</b><span id="caseHarlan">Mines, controllers, safety citations and linked EPA water permits.</span></a>
+    <a class="case steel" href="#map/flint"><span class="eyebrow">FLINT, MI</span><b>Permitted sites around Flint</b><span id="caseFlint">EPA-regulated facilities and their compliance. Water systems coming next.</span></a>
+  </div>
+  <div class="statstrip" id="homeStats" aria-label="Coverage"></div>
+</section>
 <main class="wrap">
   <div id="map" aria-label="Map"></div>
   <aside class="panel" id="detail" aria-live="polite">
@@ -51,6 +76,6 @@
 </main>
 <footer class="foot">Public records only · every fact links to its source · “linked to” never means “did this” · not legal advice · <a href="https://github.com/BuildBeyond1889/peoples-case-file" target="_blank" rel="noopener">How this works</a></footer>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
