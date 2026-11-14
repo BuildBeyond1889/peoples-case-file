@@ -913,7 +913,12 @@ def fec(name, key):
     return out
 
 
+CL_STOP = {'until': None}  # set when CourtListener says the daily quota is used up
+
+
 def courtlistener(name, token):
+    if CL_STOP['until']:
+        return None            # quota used up this run: keep previous results
     q = urllib.parse.quote(f'"{name}"')
     req = urllib.request.Request(f'https://www.courtlistener.com/api/rest/v4/search/?q={q}&type=r&order_by=dateFiled%20desc',
                                  headers={'User-Agent': UA, 'Authorization': f'Token {token}'})
@@ -927,6 +932,10 @@ def courtlistener(name, token):
         except urllib.error.HTTPError as e:
             if e.code == 429:      # rate limited: wait (honour Retry-After) and try again
                 wait = int(e.headers.get('Retry-After') or 0) or 30 * (attempt + 1)
+                if wait > 300:     # daily quota: stop asking for the rest of this run
+                    CL_STOP['until'] = wait
+                    log(f'CourtListener quota used up (retry in {wait}s); skipping courts for the rest of this run')
+                    return None
                 log(f'CourtListener rate limit; waiting {wait}s ({name})')
                 time.sleep(min(wait, 180))
                 continue
