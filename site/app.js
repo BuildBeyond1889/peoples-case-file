@@ -300,14 +300,15 @@
   const normName = (n) => (n || '').toLowerCase().replace(/\b(llc|l\.l\.c|inc|incorporated|co|corp|corporation|company|ltd|lp|llp|the|of)\b\.?/g, ' ').match(/[a-z0-9]+/g)?.join(' ') || '';
   function moneyFor(names) {
     const recs = names.map((n) => money?.by_name?.[normName(n)]).filter(Boolean);
-    const agg = { contracts: 0, grants: 0, loans: 0, awards: [], similar: 0, pacs: [], cases: [], casesCount: 0, looked: recs.length };
+    const agg = { contracts: 0, grants: 0, loans: 0, awards: [], similar: 0, pacs: [], cases: [], casesCount: 0, looked: recs.length, lobby: [], pay: [] };
     for (const r of recs) {
       for (const g of ['contracts', 'grants', 'loans']) {
         const x = r.usaspending?.[g]; if (!x) continue;
         agg[g] += x.total || 0; agg.similar += x.similar_not_counted || 0;
         agg.awards.push(...(x.top || []).map((a) => ({ ...a, group: g, matched: r.name })));
       }
-      for (const c of r.fec || []) agg.pacs.push({ ...c, matched: r.name });
+      for (const c of r.fec || []) { agg.pacs.push({ ...c, matched: r.name }); agg.pay.push(...(c.itemized || []).map((x) => ({ ...x, pac: c.committee }))); }
+      agg.lobby.push(...(r.lobbying || []).map((x) => ({ ...x, client: r.name })));
       if (r.courts) { agg.casesCount += r.courts.count || 0; agg.cases.push(...(r.courts.cases || []).map((c) => ({ ...c, matched: r.name }))); }
     }
     agg.total = agg.contracts + agg.grants + agg.loans;
@@ -448,13 +449,15 @@
         <article class="pat amber"><span class="eyebrow">SILENCE DETECTOR</span><h3>${highEpa.length ? num(highEpa.length) + ' high-priority EPA site' + (highEpa.length === 1 ? '' : 's') : 'No high-priority EPA flags'}</h3>
           ${highEpa.slice(0, 2).map((e) => `<p><b>${esc(e.name)}</b> · ${esc((e.flags || [])[0]?.label || '')}</p>`).join('') || '<p>No linked EPA site has a high-priority flag.</p>'}
           ${highEpa.length ? `<button type="button" class="linkbtn" data-letter="${esc(regFacilityLetter(highEpa[0], parse(highEpa[0].mine.properties.ids, {})))}">Draft a records request →</button>` : ''}</article>
-        ${mo.pacs.length ? `<article class="pat steel"><span class="eyebrow">MONEY OUT · FEDERAL PACS · BY NAME</span><h3>${num(mo.pacs.length)} political committee${mo.pacs.length === 1 ? '' : 's'} tied to these companies</h3>
-          ${mo.pacs.slice(0, 2).map((c) => `<p><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.committee)}</a> · ${esc(c.type || '')} · cycles ${esc((c.cycles || []).slice(0, 1).concat((c.cycles || []).slice(-1)).join('–'))}${(c.top_recipients || []).length ? '<br>Top recipients: ' + c.top_recipients.slice(0, 3).map((r) => esc(r.recipient) + ' ' + usd(r.total)).join(' · ') : ''}</p>`).join('')}
-          <p class="emptynote">Timing vs permits and enforcement, plus state donations and lobbying: not collected yet</p></article>`
-        : `<article class="pat steel empty"><span class="eyebrow">MONEY TIMING · NOT PROOF</span><h3>Donations and lobbying</h3><p>${money ? 'No federal PAC found by name for these companies.' : 'Campaign donations and lobbying lined up against permits and enforcement.'}</p><p class="emptynote">State campaign finance and lobbying: not collected yet</p></article>`}
+        ${(mo.pacs.length || mo.lobby.length) ? `<article class="pat steel"><span class="eyebrow">MONEY TIMING · NOT PROOF</span>
+          <h3>${mo.lobby.length ? usd(mo.lobby.reduce((a, x) => a + (+x.amount || 0), 0)) + ' on federal lobbying' : ''}${mo.lobby.length && mo.pacs.length ? ' · ' : ''}${mo.pacs.length ? num(mo.pacs.length) + ' PAC' + (mo.pacs.length === 1 ? '' : 's') : ''}</h3>
+          <p>${mo.pay.length ? num(mo.pay.length) + ' dated PAC payments to candidates and committees' : 'No dated PAC payments found'}${mo.lobby.length ? ', ' + num(mo.lobby.length) + ' lobbying report' + (mo.lobby.length === 1 ? '' : 's') : ''}. Lined up against this family’s control changes and permits below.</p>
+          <a href="#fp-money" class="linkbtn">See the timeline ↓</a></article>`
+        : `<article class="pat steel empty"><span class="eyebrow">MONEY TIMING · NOT PROOF</span><h3>No federal PAC or lobbying found</h3><p>${money ? 'Searched FEC and federal lobbying reports by company name; nothing matched exactly.' : 'Campaign donations and lobbying lined up against permits and enforcement.'}</p><p class="emptynote">State campaign finance and state lobbying: not collected yet</p></article>`}
         <article class="pat green"><span class="eyebrow">CREDIT WHERE IT’S DUE</span><h3>${credit.length ? num(credit.length) + ' mine' + (credit.length === 1 ? '' : 's') + ' in the best quarter' : 'No standout clean records yet'}</h3>
           <p>${credit.length ? 'Fewer citations per inspection than 75% of Harlan mines: ' + credit.slice(0, 3).map((x) => esc(x.properties.name)).join(', ') + (credit.length > 3 ? '…' : '') + '.' : 'Mines with low citation rates will show here.'}${cleanEpa.length ? ' ' + num(cleanEpa.length) + ' linked EPA site' + (cleanEpa.length === 1 ? ' has' : 's have') + ' zero quarters out of compliance.' : ''}</p></article>
       </section>
+      ${timingHtml(mo, M, epaLinks)}
       ${(mo.awards.length || mo.cases.length) ? `<section class="fp-time"><h2 class="serif">Money and courts</h2>
         <p class="muted-s">Found by searching each company name. Counted only when the name matches exactly (ignoring LLC, Inc…); each award shows the recipient’s state.${mo.similar ? ' ' + num(mo.similar) + ' similar-name results were left out.' : ''} Check each record before relying on it.</p>
         ${mo.awards.length ? `<details open><summary>Federal money (${num(mo.awards.length)} largest awards)</summary><ol class="hist">${mo.awards.slice(0, 12).map((a) => `<li><b>${usd(a.amount)}</b> ${esc(a.group.replace(/s$/, ''))} · ${esc(a.agency || '')}<span class="when">${esc(a.recipient)}${a.state ? ' (' + esc(a.state) + ')' : ''} · ${esc(a.date || '')}${a.what ? ' · ' + esc(a.what) : ''} ${a.url ? `· <a href="${esc(a.url)}" target="_blank" rel="noopener">USAspending</a>` : ''}</span></li>`).join('')}</ol></details>` : ''}
@@ -497,6 +500,46 @@
       location.hash = '#map';
     }
   });
+
+
+  // Money timing: PAC payments + lobbying quarters + this family's own events on one time axis. Timing only, never proof.
+  function timingHtml(mo, M, epaLinks) {
+    if (!mo.pay.length && !mo.lobby.length) return '';
+    const events = [];
+    for (const o of Object.values(M.ops)) for (const m of Object.values(o.mines)) for (const p of m.periods) {
+      if (p.start) events.push({ date: p.start, label: `${o.name} takes over ${m.feat.properties.name}` });
+      if (p.end) events.push({ date: p.end, label: `${o.name} leaves ${m.feat.properties.name}` });
+    }
+    for (const e of epaLinks) for (const pm of e.permits || []) if (pm.expiration) events.push({ date: pm.expiration, label: `Water permit ${pm.id} ${pm.status_code === 'EXP' ? 'expired' : 'expires'}`, hot: pm.status_code === 'EXP' });
+    const lob = mo.lobby.map((x) => ({ date: `${x.year}-${({ 'First Quarter (Q1)': '02', 'Second Quarter (Q2)': '05', 'Third Quarter (Q3)': '08', 'Fourth Quarter (Q4)': '11' })[x.period] || '06'}-15`, ...x }));
+    const all = [...mo.pay.map((x) => x.date), ...lob.map((x) => x.date), ...events.map((x) => x.date)].filter(Boolean).sort();
+    const y0 = Math.max(+(all[0] || '2008').slice(0, 4), 2000), y1 = new Date().getFullYear() + 1;
+    const W = 1000, X = (d) => 40 + ((+d.slice(0, 4) + (+d.slice(5, 7) - 1) / 12 - y0) / (y1 - y0)) * (W - 60);
+    const maxAmt = Math.max(1, ...mo.pay.map((x) => +x.amount || 0));
+    const ticks = []; for (let y = y0; y <= y1; y += y1 - y0 > 14 ? 4 : 2) ticks.push(y);
+    const inRange = (d) => d && +d.slice(0, 4) >= y0;
+    const svg = `<svg class="tchart" viewBox="0 0 ${W} 190" role="img" aria-label="Timeline of PAC payments, lobbying reports and this family's events">
+      ${ticks.map((y) => `<line x1="${X(y + '-01-01')}" x2="${X(y + '-01-01')}" y1="18" y2="178" stroke="#1F242D"/><text x="${X(y + '-01-01')}" y="12" fill="#8B929C" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">${y}</text>`).join('')}
+      <text x="4" y="52" fill="#E3A44E" font-size="10" font-family="Inter">PAC $</text><text x="4" y="104" fill="#9CC6D8" font-size="10" font-family="Inter">Lobby</text><text x="4" y="154" fill="#ECE9E2" font-size="10" font-family="Inter">Events</text>
+      ${mo.pay.filter((x) => inRange(x.date)).map((x) => `<circle cx="${X(x.date)}" cy="50" r="${3 + 9 * Math.sqrt((+x.amount || 0) / maxAmt)}" fill="#E3A44E" fill-opacity=".55"><title>${esc(x.date)} · ${usd(x.amount)} to ${esc(x.recipient)} (${esc(x.pac)})</title></circle>`).join('')}
+      ${lob.filter((x) => inRange(x.date)).map((x) => `<rect x="${X(x.date) - 4}" y="92" width="8" height="18" rx="2" fill="#86B6CC" fill-opacity=".8"><title>${esc(x.year)} ${esc(x.period || '')} · ${x.amount ? usd(x.amount) : 'amount not reported'} · ${esc(x.registrant || '')} · ${esc((x.issues || []).join(', '))}</title></rect>`).join('')}
+      ${events.filter((x) => inRange(x.date)).map((x) => `<line x1="${X(x.date)}" x2="${X(x.date)}" y1="140" y2="168" stroke="${x.hot ? '#EE7D67' : '#ECE9E2'}" stroke-width="2"><title>${esc(x.date)} · ${esc(x.label)}</title></line>`).join('')}
+    </svg>`;
+    const byRecipient = {};
+    for (const x of mo.pay) { const k = x.recipient || 'Unknown'; byRecipient[k] = (byRecipient[k] || 0) + (+x.amount || 0); }
+    const topRec = Object.entries(byRecipient).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const issues = {}; for (const x of mo.lobby) for (const i of x.issues || []) issues[i] = (issues[i] || 0) + 1;
+    const firms = [...new Set(mo.lobby.map((x) => x.registrant).filter(Boolean))];
+    return `<section class="fp-time" id="fp-money"><h2 class="serif">Money timing</h2>
+      <p class="muted-s">PAC payments (amber, sized by amount), federal lobbying reports (blue) and this family’s own events (white; coral = expired permit) on one timeline. Hover any mark for details. <b>Timing is not proof</b> of any connection.</p>
+      <div class="tchart-wrap">${svg}</div>
+      <div class="fp-two">
+        ${topRec.length ? `<div><h3 class="fp-sub">Where the PAC money went</h3><ol class="hist">${topRec.map(([r, a]) => `<li><b>${esc(r)}</b><span class="when">${usd(a)} in recent cycles</span></li>`).join('')}</ol>
+          <p class="note">From the PAC’s own FEC reports. Recipients are candidates and political committees, in their public roles.</p></div>` : ''}
+        ${mo.lobby.length ? `<div><h3 class="fp-sub">What they lobbied on</h3><ol class="hist">${Object.entries(issues).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([i, n]) => `<li><b>${esc(i)}</b><span class="when">${num(n)} report${n === 1 ? '' : 's'}</span></li>`).join('')}</ol>
+          <p class="note">Lobbying firms: ${firms.slice(0, 5).map(esc).join(', ')}${firms.length > 5 ? '…' : ''}. Source: federal Lobbying Disclosure Act reports (lda.gov), matched by exact client name.</p></div>` : ''}
+      </div></section>`;
+  }
 
   // ---- Fair comparisons
   function fairHtml(f) {

@@ -336,6 +336,7 @@ def msha(areas):
 
 # ---------------------------------------------------------------- ECHO ----
 ECHO = 'https://echodata.epa.gov/echo/echo_rest_services'
+PAGES_URL = 'https://buildbeyond1889.github.io/peoples-case-file/'
 
 
 _ECHO_COLS = None
@@ -946,10 +947,84 @@ def courtlistener(name, token):
     return {'count': data.get('count', len(cases)), 'cases': cases}
 
 
-def money_and_courts(families, max_controllers=40):
-    """Look up the biggest company controllers and their operating companies in USAspending, FEC and CourtListener."""
+LDA = 'https://lda.gov/api/v1/'
+
+
+def get_json_retry(url, params=None, headers=None, tries=4, pause=0.5, label=''):
+    """GET JSON with polite pacing and retries on rate limits / timeouts."""
+    q = url + ('?' + urllib.parse.urlencode(params) if params else '')
+    for attempt in range(tries):
+        req = urllib.request.Request(q, headers={'User-Agent': UA, 'Accept': 'application/json', **(headers or {})})
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                data = json.loads(r.read())
+            time.sleep(pause)
+            return data
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 502, 503, 504):
+                wait = int(e.headers.get('Retry-After') or 0) or 20 * (attempt + 1)
+                log(f'{label} {e.code}; waiting {wait}s')
+                time.sleep(min(wait, 180))
+                continue
+            log(f'{label} failed: HTTP {e.code}')
+            return None
+        except Exception as e:
+            log(f'{label} failed: {e!r}')
+            time.sleep(5)
+    return None
+
+
+def lobbying(name, key):
+    """Federal lobbying reports (LD-2) where this company is the CLIENT. Matched by exact normalized client name."""
+    hdr = {'Authorization': f'Token {key}'} if key else {}
+    data = get_json_retry(LDA + 'filings/', {'client_name': name, 'page_size': 100, 'ordering': '-dt_posted'}, hdr, pause=1.5, label=f'LDA {name}')
+    if data is None:
+        return None
+    out = []
+    for f in data.get('results', []):
+        cl = (f.get('client') or {}).get('name')
+        if norm_name(cl) != norm_name(name):
+            continue
+        acts = f.get('lobbying_activities') or []
+        out.append({'year': f.get('filing_year'), 'period': f.get('filing_period_display') or f.get('filing_period'),
+                    'type': f.get('filing_type_display'), 'registrant': (f.get('registrant') or {}).get('name'),
+                    'amount': f.get('income') or f.get('expenses'), 'posted': (f.get('dt_posted') or '')[:10],
+                    'issues': sorted({a.get('general_issue_code_display') for a in acts if a.get('general_issue_code_display')}),
+                    'topics': [(a.get('description') or '')[:160] for a in acts if a.get('description')][:3],
+                    'entities': sorted({g.get('name') for a in acts for g in (a.get('government_entities') or []) if g.get('name')})[:8],
+                    'url': f.get('filing_document_url')})
+    return out
+
+
+def fec_itemized(committee_id, key, cycles=3):
+    """Dated disbursements from a company PAC to candidates and committees (public roles), recent cycles."""
+    rows = []
+    yr = int(TODAY[:4])
+    cyc = yr if yr % 2 == 0 else yr + 1
+    for c in range(cyc, cyc - 2 * cycles, -2):
+        data = get_json_retry('https://api.open.fec.gov/v1/schedules/schedule_b/',
+                              {'committee_id': committee_id, 'two_year_transaction_period': c, 'per_page': 100,
+                               'sort': '-disbursement_date', 'api_key': key}, pause=0.6, label=f'FEC sched B {committee_id} {c}')
+        for r in (data or {}).get('results', []):
+            rows.append({'date': (r.get('disbursement_date') or '')[:10], 'amount': r.get('disbursement_amount'),
+                         'recipient': r.get('recipient_name'), 'state': r.get('recipient_state'),
+                         'purpose': (r.get('disbursement_description') or '')[:80]})
+    return rows
+
+
+def money_and_courts(families, max_controllers=40, refresh_days=7, max_new_courts=25):
+    """Look up the biggest company controllers and their operating companies in USAspending, FEC, LDA and CourtListener.
+    Results from the last run are reused for up to refresh_days so the daily build stays fast and polite."""
     fec_key = os.environ.get('FEC_API_KEY') or 'DEMO_KEY'
     cl_token = os.environ.get('COURTLISTENER_TOKEN')
+    lda_key = os.environ.get('LDA_API_KEY')
+    prev = {}
+    try:
+        prev = json.loads(fetch(PAGES_URL + 'data/money.json')[1]).get('by_name', {})
+        log(f'Money/courts: reusing previous run ({len(prev)} names)')
+    except Exception as e:
+        log('Money/courts: no previous run to reuse', repr(e))
+    cutoff = (dt.date.fromisoformat(TODAY) - dt.timedelta(days=refresh_days)).isoformat()
     top = [f for f in families if not (f.get('controller_type') or '').upper().startswith('P') and f.get('viol')]
     top = sorted(top, key=lambda f: -(f['viol'] or {}).get('total', 0))[:max_controllers]
     names = []
@@ -959,17 +1034,50 @@ def money_and_courts(families, max_controllers=40):
     names = list(dict.fromkeys(n for n in names if n and norm_name(n)))
     out = {'as_of': TODAY, 'rules': 'Matched by name. Counted only when the name matches exactly after removing suffixes (LLC, Inc...). '
            'Similar names are listed as not counted. Each award shows the recipient state.',
-           'fec_key': 'personal' if fec_key != 'DEMO_KEY' else 'demo', 'courts': 'on' if cl_token else 'needs_token', 'by_name': {}}
-    fec_budget = 400 if fec_key != 'DEMO_KEY' else 12
+           'fec_key': 'personal' if fec_key != 'DEMO_KEY' else 'demo', 'courts': 'on' if cl_token else 'needs_token',
+           'lobbying': 'on', 'by_name': {}}
+    fec_budget = 600 if fec_key != 'DEMO_KEY' else 12
+    new_courts = 0
     for n in names:
-        rec = {'name': n, 'usaspending': usaspending(n)}
-        if fec_budget > 0:
-            rec['fec'] = fec(n, fec_key)
+        old = prev.get(norm_name(n), {})
+        fresh = lambda k: old.get('checked', {}).get(k, '') >= cutoff and k in old
+        rec = {'name': n, 'checked': dict(old.get('checked', {}))}
+        for k, fn in (('usaspending', lambda: usaspending(n)), ('lobbying', lambda: lobbying(n, lda_key))):
+            if fresh(k):
+                rec[k] = old[k]
+            else:
+                v = fn()
+                if v is not None:
+                    rec[k], rec['checked'][k] = v, TODAY
+                elif k in old:
+                    rec[k] = old[k]
+        if fresh('fec'):
+            rec['fec'] = old['fec']
+        elif fec_budget > 0:
+            v = fec(n, fec_key)
             fec_budget -= 2
+            if v is not None:
+                for c in v:
+                    c['itemized'] = fec_itemized(c['committee_id'], fec_key) if fec_key != 'DEMO_KEY' else []
+                    fec_budget -= 3
+                rec['fec'], rec['checked']['fec'] = v, TODAY
+            elif 'fec' in old:
+                rec['fec'] = old['fec']
         if cl_token:
-            rec['courts'] = courtlistener(n, cl_token)
+            if fresh('courts'):
+                rec['courts'] = old['courts']
+            elif new_courts < max_new_courts:
+                v = courtlistener(n, cl_token)
+                new_courts += 1
+                if v is not None:
+                    rec['courts'], rec['checked']['courts'] = v, TODAY
+                elif 'courts' in old:
+                    rec['courts'] = old['courts']
+            elif 'courts' in old:
+                rec['courts'] = old['courts']
         out['by_name'][norm_name(n)] = rec
-    log(f"Money/courts: looked up {len(names)} names; courts {'on' if cl_token else 'off (no token)'}; FEC key {out['fec_key']}")
+    log(f"Money/courts: {len(names)} names; courts {'on' if cl_token else 'off (no token)'} ({new_courts} refreshed); "
+        f"FEC key {out['fec_key']}; lobbying filings found for {sum(1 for r in out['by_name'].values() if r.get('lobbying'))} names")
     return out
 
 
