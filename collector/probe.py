@@ -1,70 +1,43 @@
 #!/usr/bin/env python3
-"""One-off probe: print the real shape of sources before the collector relies on them.
-Safe to delete once the collector is verified. Never fails the build."""
-import csv, io, json, sys, zipfile, urllib.request
+"""Diagnostic probe: print the real shape of sources before the collector relies on them. Never fails the build."""
+import json, sys, urllib.parse, urllib.request
 
 UA = 'PeoplesCaseFile/0.2 (public-records research; https://github.com/BuildBeyond1889/peoples-case-file)'
 
 
-def get(url, timeout=600):
-    req = urllib.request.Request(url, headers={'User-Agent': UA})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
-
-
-def zip_heads(url, want=None):
-    print(f'\n### ZIP {url}', flush=True)
+def call(url, body=None, timeout=90):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, headers={'User-Agent': UA, 'Content-Type': 'application/json', 'Accept': 'application/json'})
     try:
-        body = get(url)
-        z = zipfile.ZipFile(io.BytesIO(body))
-        print('  size MB', round(len(body) / 1e6, 1), 'files:', [(i.filename, round(i.file_size / 1e6, 1)) for i in z.infolist()])
-        for n in z.namelist():
-            if want and not any(w.lower() in n.lower() for w in want):
-                continue
-            with z.open(n) as f:
-                head = io.TextIOWrapper(f, encoding='latin-1').readline().strip()
-                second = io.TextIOWrapper(z.open(n), encoding='latin-1')
-                second.readline()
-                print(f'  {n}: HEADER {head[:900]}')
-                print(f'  {n}: ROW1   {second.readline().strip()[:600]}')
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode('utf-8', 'replace')[:600]
     except Exception as e:
-        print('  FAILED', repr(e))
+        return None, repr(e)
 
 
-def js(url):
-    print(f'\n### JSON {url}', flush=True)
-    try:
-        body = get(url, timeout=120)
-        txt = body.decode('utf-8', 'replace')
-        print('  ', txt[:1500])
-    except Exception as e:
-        print('  FAILED', repr(e))
+def show(label, url, body=None, n=1800):
+    st, txt = call(url, body)
+    print(f'\n### {label}\n{url}\nstatus {st}\n{txt[:n]}', flush=True)
 
 
 def main():
-    # ECHO metadata: which columns can link a facility to its water permit?
-    try:
-        meta = json.loads(get('https://echodata.epa.gov/echo/echo_rest_services.metadata?output=JSON'))
-        cols = meta.get('Results', {}).get('ResultColumns', [])
-        print('ECHO metadata total columns', len(cols))
-        print('ECHO permit/ID columns:', [c.get('ObjectName') for c in cols if any(k in (c.get('ObjectName') or '') for k in ('NPDES', 'Permit', 'Source', 'IDs', 'Expir'))])
-    except Exception as e:
-        print('ECHO metadata FAILED', repr(e))
-    # EPA ICIS-NPDES bulk (permits with status + expiration)
-    zip_heads('https://echo.epa.gov/files/echodownloads/npdes_downloads.zip', want=['PERMITS', 'FACILITIES', 'QNCR', 'VIOL'])
-    # MSHA inspections + production for fair comparisons
-    zip_heads('https://arlweb.msha.gov/OpenGovernmentData/DataSets/Inspections.zip')
-    zip_heads('https://arlweb.msha.gov/OpenGovernmentData/DataSets/MinesProdYearly.zip')
-    # Envirofacts: TRI facilities + SDWIS water systems
-    for u in ['https://data.epa.gov/efservice/tri_facility/state_abbr/MI/rows/0:1/JSON',
-              'https://data.epa.gov/efservice/sdw_water_system/state_code/MI/rows/0:1/JSON',
-              'https://data.epa.gov/efservice/WATER_SYSTEM/STATE_CODE/MI/rows/0:1/JSON',
-              'https://data.epa.gov/efservice/GEOGRAPHIC_AREA/STATE_SERVED/MI/rows/0:1/JSON',
-              'https://data.epa.gov/efservice/sdw_geographic_area/state_served/MI/rows/0:1/JSON',
-              'https://data.epa.gov/efservice/VIOLATION/rows/0:1/JSON',
-              'https://data.epa.gov/efservice/sdw_viol_enforcement/rows/0:1/JSON',
-              'https://data.epa.gov/efservice/tri_release_qty/rows/0:1/JSON']:
-        js(u)
+    name = 'Bluegrass Natural Resources'
+    # USAspending: contracts (A-D), grants (02-05), loans (07, 08 incl. PPP)
+    for codes in (['A', 'B', 'C', 'D'], ['07', '08'], ['02', '03', '04', '05']):
+        show(f'USAspending {codes}', 'https://api.usaspending.gov/api/v2/search/spending_by_award/', {
+            'filters': {'recipient_search_text': [name], 'award_type_codes': codes},
+            'fields': ['Award ID', 'Recipient Name', 'Award Amount', 'Loan Value', 'Awarding Agency', 'Start Date', 'Description',
+                       'recipient_id', 'Recipient UEI', 'Place of Performance State Code', 'Recipient Location'],
+            'limit': 3, 'page': 1})
+    show('USAspending recipient autocomplete', 'https://api.usaspending.gov/api/v2/autocomplete/recipient/', {'search_text': name, 'limit': 5})
+    # CourtListener (anonymous)
+    q = urllib.parse.quote(f'"{name}"')
+    show('CourtListener v4 search RECAP', f'https://www.courtlistener.com/api/rest/v4/search/?q={q}&type=r')
+    show('CourtListener v3 search RECAP', f'https://www.courtlistener.com/api/rest/v3/search/?q={q}&type=r')
+    # FEC with DEMO_KEY: committees connected to an organization
+    show('FEC committees', f'https://api.open.fec.gov/v1/committees/?q={urllib.parse.quote("Alpha Natural Resources")}&api_key=DEMO_KEY&per_page=3')
 
 
 if __name__ == '__main__':
