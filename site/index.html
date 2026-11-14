@@ -3,41 +3,52 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>People's Case File</title>
-<meta name="description" content="See what's around you: facilities, violations, water systems and who owns them, from public records, with sources.">
+<title>People's Case File · Curtain Puller</title>
+<meta name="description" content="Who's really behind it? Mines, facilities, owners and their records, from public sources, every fact linked to its source.">
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#15181d">
+<meta name="theme-color" content="#0A0C0F">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;800&family=IBM+Plex+Mono:wght@500;600&display=swap">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <header class="top">
-  <div class="brand">People's Case File</div>
+  <div class="brand"><span class="wordmark">People's Case File</span><span class="eyebrow">CURTAIN PULLER</span></div>
   <form id="search" class="search" role="search">
-    <label for="q" class="vh">Address or place</label>
-    <input id="q" type="search" placeholder="Type an address or town" autocomplete="off">
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <label for="q" class="vh">Address, place, mine or company</label>
+    <input id="q" type="search" placeholder="Address, town, mine or company" autocomplete="off">
     <button type="submit">Go</button>
   </form>
-  <div class="mode" role="group" aria-label="Mode">
+  <div class="mode" role="group" aria-label="Depth">
     <button type="button" id="mSimple" aria-pressed="true">Simple</button>
     <button type="button" id="mPro" aria-pressed="false">Pro</button>
   </div>
+  <span class="pulled" id="fresh">Loading…</span>
 </header>
 <main class="wrap">
+  <div id="map" aria-label="Map"></div>
+  <aside class="panel" id="detail" aria-live="polite">
+    <div id="detailBody">
+      <p class="eyebrow">HARLAN COUNTY, KY · FLINT, MI</p>
+      <h1 class="serif">Who’s <i>really</i> behind it?</h1>
+      <p class="muted-s">Tap any dot. Mines show who ran them, who controlled them, and every safety citation on record. Search finds addresses, mines and companies.</p>
+    </div>
+  </aside>
   <aside class="panel" id="layers">
     <h2>Layers</h2>
     <div id="layerList"></div>
-    <p class="fresh" id="fresh">Loading data…</p>
-  </aside>
-  <div id="map" aria-label="Map"></div>
-  <aside class="panel" id="detail">
-    <h2>Around here</h2>
-    <div id="detailBody"><p class="muted">Tap a dot on the map, or search an address.</p></div>
+    <div class="legend">
+      <span><i class="dot" style="background:#E3A44E"></i>Active mine</span>
+      <span><i class="dot" style="background:#5A6270"></i>Closed mine</span>
+      <span><i class="dot" style="background:#86B6CC"></i>EPA facility</span>
+      <span class="muted-s">Bigger dot = more citations</span>
+    </div>
   </aside>
 </main>
-<p class="foot">Public records only · every fact links to its source · not legal advice · <a href="#" id="about">How this works</a></p>
+<footer class="foot">Public records only · every fact links to its source · “linked to” never means “did this” · not legal advice · <a href="https://github.com/BuildBeyond1889/peoples-case-file" target="_blank" rel="noopener">How this works</a></footer>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

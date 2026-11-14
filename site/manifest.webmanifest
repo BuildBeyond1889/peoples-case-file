@@ -3,7 +3,7 @@
   "short_name": "Case File",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f4f3ef",
-  "theme_color": "#15181d",
+  "background_color": "#0A0C0F",
+  "theme_color": "#0A0C0F",
   "icons": []
 }

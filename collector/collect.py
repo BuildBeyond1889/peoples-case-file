@@ -147,6 +147,79 @@ def coord(lat, lon):
     return (round(lo, 5), round(la, 5)), flag
 
 
+def money(v):
+    try:
+        return float(str(v).replace('$', '').replace(',', '') or 0)
+    except ValueError:
+        return 0.0
+
+
+def new_tally():
+    return {'total': 0, 'sig_sub': 0, 'last5': 0, 'proposed': 0.0, 'due': 0.0, 'paid': 0.0,
+            'first': '', 'last': '', 'vacated': 0, 'contractor': 0}
+
+
+def add_viol(t, r, cutoff):
+    day = msha_date(col(r, 'VIOLATION_ISSUE_DT'))
+    if col(r, 'VACATE_DT'):
+        t['vacated'] += 1          # vacated citations are kept out of the totals
+        return
+    t['total'] += 1
+    if col(r, 'SIG_SUB').upper() in ('Y', 'YES'):
+        t['sig_sub'] += 1
+    if day and day >= cutoff:
+        t['last5'] += 1
+    t['proposed'] += money(col(r, 'PROPOSED_PENALTY'))
+    t['due'] += money(col(r, 'AMOUNT_DUE'))
+    t['paid'] += money(col(r, 'AMOUNT_PAID'))
+    if day:
+        t['first'] = min(t['first'] or day, day)
+        t['last'] = max(t['last'], day)
+
+
+def round_tally(t):
+    for k in ('proposed', 'due', 'paid'):
+        t[k] = round(t[k], 2)
+    return t
+
+
+def msha_violations(links, mine_ids):
+    """Stream MSHA Violations.txt (very large) and tally only the pilot mines.
+    Each citation is credited to the operator and controller MSHA recorded AT THE TIME it was issued."""
+    url = next((l for l in links if l.lower().endswith('/violations.zip')), MSHA_BASE + 'DataSets/Violations.zip')
+    url, body = fetch(url, timeout=900)
+    archive('msha', 'Violations.zip', url, body)
+    z = zipfile.ZipFile(io.BytesIO(body))
+    name = [n for n in z.namelist() if n.lower().endswith(('.txt', '.csv'))][0]
+    cutoff = str(int(TODAY[:4]) - 5) + TODAY[4:]
+    by_mine, by_ctl, rows_seen = {}, {}, 0
+    with z.open(name) as raw:
+        reader = csv.reader(io.TextIOWrapper(raw, encoding='latin-1', newline=''), delimiter='|')
+        header = [h.strip().upper() for h in next(reader)]
+        log('  Violations columns:', header)
+        for rec in reader:
+            rows_seen += 1
+            r = dict(zip(header, (x.strip() for x in rec)))
+            mid = r.get('MINE_ID')
+            if mid not in mine_ids:
+                continue
+            m = by_mine.setdefault(mid, new_tally())
+            if 'contractor' in col(r, 'VIOLATOR_TYPE_CD').lower():
+                m['contractor'] += 1   # cited to a contractor, not the operator
+                continue
+            add_viol(m, r, cutoff)
+            cid = col(r, 'CONTROLLER_ID')
+            if cid:
+                c = by_ctl.setdefault(cid, dict(new_tally(), mines=set()))
+                add_viol(c, r, cutoff)
+                c['mines'].add(mid)
+    for c in by_ctl.values():
+        c['mines'] = len(c['mines'])
+    log(f'  Violations: scanned {rows_seen:,} rows; {len(by_mine)} pilot mines with citations')
+    return ({k: round_tally(v) for k, v in by_mine.items()},
+            {k: round_tally(v) for k, v in by_ctl.items()}, cutoff)
+
+
 def msha(areas):
     links = msha_links()
     mines_url = next((l for l in links if l.lower().endswith('/mines.zip')), None) or MSHA_BASE + 'DataSets/Mines.zip'
@@ -206,7 +279,7 @@ def msha(areas):
             feats.append({'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': list(xy)}, 'properties': {
                 'name': name or f'Mine {mid}',
                 'kind': f"{col(m, 'CURRENT_MINE_TYPE', 'MINE_TYPE') or 'Mine'} coal mine · {status or 'status unknown'}",
-                'operator': cur_op, 'parent': cur_ctl, 'parent_confidence': 'high (MSHA controller record)' if cur_ctl else None,
+                'status': status, 'operator': cur_op, 'parent': cur_ctl, 'parent_confidence': 'high (MSHA controller record)' if cur_ctl else None,
                 'history': ops,
                 'source': 'MSHA Open Government Data',
                 'source_url': 'https://www.msha.gov/mine-data-retrieval-system',  # look up by mine ID
@@ -214,6 +287,18 @@ def msha(areas):
                 'flags': [flag] if flag else [],
                 'ids': {'msha_mine': mid, 'msha_controller': cur_ctl_id},
             }})
+    viol_note = None
+    try:
+        by_mine, by_ctl, cutoff = msha_violations(links, {x['properties']['ids']['msha_mine'] for x in feats})
+        for x in feats:
+            x['properties']['viol'] = by_mine.get(x['properties']['ids']['msha_mine'], round_tally(new_tally()))
+            x['properties']['citations'] = x['properties']['viol']['total']  # flat copy for map styling
+        for cid, f in families.items():
+            f['viol'] = by_ctl.get(cid)
+        viol_note = {'source': 'MSHA Violations (Open Government Data)', 'last5_from': cutoff,
+                     'rule': 'Operator citations only; vacated citations excluded; each citation counted under the controller MSHA recorded when it was issued.'}
+    except Exception as e:
+        log('MSHA violations failed:', repr(e))
     for f in families.values():
         f['operators'] = [{'id': k, 'name': v} for k, v in f['operators'].items()]
         f['mines'] = [{'id': k, 'name': v} for k, v in f['mines'].items()]
@@ -232,6 +317,12 @@ def msha(areas):
         'top_controllers_by_mines': [{'controller': f['controller'], 'id': f['controller_id'], 'type': f['controller_type'],
                                       'mines': len(f['mines']), 'operators': len(f['operators'])} for f in fams[:15]],
     }
+    if viol_note:
+        summary['violations_rule'] = viol_note
+        lead = sorted((f for f in fams if f.get('viol')), key=lambda f: -f['viol']['total'])[:15]
+        summary['top_controllers_by_citations'] = [{'controller': f['controller'], 'id': f['controller_id'], 'type': f['controller_type'],
+                                                    'citations': f['viol']['total'], 'sig_sub': f['viol']['sig_sub'],
+                                                    'due': f['viol']['due'], 'paid': f['viol']['paid']} for f in lead]
     write_json('summary.json', summary)
     log('SUMMARY', json.dumps(summary, indent=1))
     return feats, fams
