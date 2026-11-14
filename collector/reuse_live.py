@@ -9,7 +9,7 @@ def get(name):
     open(os.path.join(OUT, name), 'wb').write(raw)
     return raw
 idx = json.loads(get('index.json'))
-for f in list(idx.get('layers', {}).values()) + ['families.json', 'water.json', 'money.json', 'summary.json', 'parents.json', 'effluent.json', 'kypermits.json', 'registry.json', 'comments.json']:
+for f in list(idx.get('layers', {}).values()) + ['families.json', 'water.json', 'money.json', 'summary.json', 'parents.json', 'effluent.json', 'kypermits.json', 'registry.json', 'comments.json', 'archive.json']:
     try:
         get(f)
         print('copied', f)

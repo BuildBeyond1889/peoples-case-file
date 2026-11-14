@@ -1481,6 +1481,7 @@ def gleif_lookup(name):
         r = gleif_get(f'lei-records/{lid}')
         if not r:
             continue
+        archive('gleif', f'lei-{lid}.json', GLEIF + f'lei-records/{lid}', json.dumps(r).encode())
         ent = gleif_entity(r['data'])
         for rel in ('direct', 'ultimate'):
             p = gleif_get(f'lei-records/{lid}/{rel}-parent')
@@ -1593,12 +1594,16 @@ def _clean(t):
 
 def ky_sos_profile(sess, url):
     final, html = sess.get(url)
+    ctr = (re.search(r'ctr=(\d+)', final) or re.search(r'ctr=(\d+)', url))
+    ctr = ctr.group(1) if ctr else str(abs(hash(final)))
+    archive('ky-sos', f'profile-{ctr}.html', final, html.encode('utf-8'))
     info = {_clean(a).lower(): _clean(b) for a, b in re.findall(r'class="grid-label">(.*?)</div>\s*<div class="grid-value">(.*?)</div>', html, re.S)}
     officers = []
     for name, val in re.findall(r'<input type="submit" name="([^"]+)" value="([^"]+)"', html):
         if not re.search(r'Officer|Representative|Member|Manager', val, re.I):
             continue
         _, page = sess.get(final, {**_hidden(html), name: val})
+        archive('ky-sos', f'profile-{ctr}-{name.split("$")[-1]}.html', final + ' (pressed ' + val + ')', page.encode('utf-8'))
         kind = 'initial' if 'Initial' in val or 'Founding' in val else 'current'
         mh = re.search(r'>\s*(?:Current|Initial|Founding) (?:Officers|Representatives)\s*<', page)
         if not mh:
@@ -1622,7 +1627,7 @@ def ky_sos_profile(sess, url):
            'office_city': city_state(info.get('principal office')),
            'agent': (agent.split(' / ')[0] if agent else None),
            'agent_is_state': 'SECRETARY OF STATE' in agent.upper(),
-           'url': final, 'officers': []}
+           'url': final, 'officers': [], 'archived': [f'profile-{ctr}.html'], 'pulled': TODAY}
     hidden = 0
     for o in officers:
         is_co = bool(COMPANY_WORDS.search(o['name']))
@@ -1740,13 +1745,15 @@ def comments(mines, facilities):
                 rows = j.get('queryResults', j) if isinstance(j, dict) else j
                 log('MiEnviro notices: keys', list(rows[0].keys())[:40] if rows else None, 'count', len(rows))
                 for x in rows or []:
-                    blob = ' '.join(str(v) for v in x.values() if isinstance(v, (str, int, float)))
-                    if not re.search(r'genesee|flint|burton|grand blanc|mount morris|davison|fenton|swartz creek|clio|flushing', blob, re.I):
+                    counties = ' '.join(str(x.get(k) or '') for k in ('countyDescription', 'publicNotificationCoverageCounties'))
+                    if a['county'].lower() not in counties.lower():
                         continue
-                    items.append({'id': f"MI-{x.get('id')}", 'name': x.get('siteName') or x.get('contactNamePermit') or x.get('name') or x.get('title'),
-                                  'program': x.get('permittingProgramDescription') or x.get('programName'), 'type': x.get('publicNoticeTypeDescription') or x.get('type'),
+                    nm = x.get('contactNamePermit') or x.get('contactNameApplicant') or x.get('contactNameResponsibleParty') or 'Public notice'
+                    items.append({'id': f"MI-{x.get('id')}", 'name': nm,
+                                  'program': x.get('programAreaDescription'), 'type': x.get('publicNotificationTypeDescription'),
                                   'stage': 'Open for public comment', 'stage_date': str(x.get('startDate') or '')[:10] or None,
-                                  'ends': str(x.get('endDate') or '')[:10] or None, 'town': x.get('city') or x.get('county'), 'open': True,
+                                  'ends': str(x.get('endDate') or '')[:10] or None, 'town': x.get('city') or x.get('countyDescription'), 'open': True,
+                                  'permit': x.get('permitNumber'), 'lat': x.get('latitude'), 'lon': x.get('longitude'),
                                   'url': f"https://mienviro.michigan.gov/ncore/external/publicnotice/info/{x.get('id')}/details"})
         except Exception as e:
             log(f'Comments {aid} failed:', repr(e))
@@ -1769,6 +1776,29 @@ def comments(mines, facilities):
             tied += 1
     out['tied_to_map'] = tied
     return out
+
+
+RELEASE_BASE = 'https://github.com/BuildBeyond1889/peoples-case-file/releases'
+
+
+def archive_index():
+    """Public index of today's archived originals, so any record on the site can be traced to an unmodified,
+    hashed copy in the monthly GitHub release."""
+    tag = 'archive-' + TODAY[:7]
+    asset = f'raw-{TODAY}.tar.gz'
+    files = []
+    for src in sorted(os.listdir(ARCHIVE)) if os.path.isdir(ARCHIVE) else []:
+        mp = os.path.join(ARCHIVE, src, TODAY, 'manifest.json')
+        if not os.path.exists(mp):
+            continue
+        for m in json.load(open(mp)):
+            files.append({'source': src, 'file': m['file'], 'url': m['url'], 'pulled_utc': m['pulled_utc'],
+                          'sha256': m['sha256'], 'bytes': m['bytes'], 'path': f'archive/{src}/{TODAY}/{m["file"]}'})
+    return {'as_of': TODAY, 'release': {'tag': tag, 'asset': asset, 'page': f'{RELEASE_BASE}/tag/{tag}',
+                                        'download': f'{RELEASE_BASE}/download/{tag}/{asset}',
+                                        'note': 'If the archive is larger than 1.9 GB it is split into .part00, .part01... files; join them before extracting. '
+                                                f'{asset}.sha256 lists the fingerprint of each part.'},
+            'files': files}
 
 
 def write_json(name, obj):
@@ -1879,6 +1909,12 @@ def main():
     report['flag_codes'] = codes
     report['expired_examples'] = [f['properties']['name'] for f in facilities if any(fl['code'] == 'expired_permit' for fl in f['properties'].get('flags', []))][:10]
 
+    try:
+        ai = archive_index()
+        write_json('archive.json', ai)
+        report['archived_files'] = len(ai['files'])
+    except Exception as e:
+        log('Archive index failed:', repr(e))
     write_json('index.json', {'pulled': TODAY, 'layers': layers, 'report': report})
     log('REPORT', json.dumps(report, indent=1))
 

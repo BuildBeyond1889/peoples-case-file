@@ -58,6 +58,7 @@
   let parents = null;     // parents.json: GLEIF legal-entity records by normalized name
   let registry = null;    // registry.json: Kentucky Secretary of State records by normalized name
   let pendingData = null; // comments.json: permit actions pending with the state (public-comment alerts)
+  let archiveIdx = null;  // archive.json: today's archived originals with SHA-256 (for evidence packs)
   const intro = $('detailBody').innerHTML;
 
   async function loadData() {
@@ -72,6 +73,7 @@
       try { parents = await getJSON('data/parents.json'); } catch (e) {}
       try { registry = await getJSON('data/registry.json'); } catch (e) {}
       try { pendingData = await getJSON('data/comments.json'); } catch (e) {}
+      try { archiveIdx = await getJSON('data/archive.json'); } catch (e) {}
     } catch (e) {
       const s = await getJSON('data/sample.geojson');
       for (const L of LAYERS) byLayer[L.id] = { type: 'FeatureCollection', features: s.features.filter((f) => f.properties.layer === L.id) };
@@ -209,7 +211,7 @@
       ${histHtml}
       ${kyPermitsHtml(parse(p.ky_permits, []))}
       ${pendingCardHtml(p)}
-      <div class="btns"><button type="button" class="btn" data-letter="${esc(regMineLetter(p, ids, v))}">Request this mine’s MSHA records →</button></div>
+      <div class="btns"><button type="button" class="btn" data-letter="${esc(regMineLetter(p, ids, v))}">Request this mine’s MSHA records →</button>${packBtn('mine', p, p.name + ' (MSHA mine ' + ids.msha_mine + ')')}</div>
       <p class="note">Owned by a public company? Its annual report lists the mine by ID (Exhibit 95): <a href="https://www.sec.gov/edgar/search/#/q=${encodeURIComponent(`"${ids.msha_mine}" OR "${String(ids.msha_mine).slice(0, 2)}-${String(ids.msha_mine).slice(2)}"`)}" target="_blank" rel="noopener">search SEC filings for ${esc(ids.msha_mine)}</a>.</p>
       ${flags.length ? `<p class="flag">Data note: ${flags.map(esc).join('; ')}</p>` : ''}
       <p class="src">SOURCE: <a href="${MSHA_LOOKUP}" target="_blank" rel="noopener">MSHA Mine Data Retrieval</a> · search mine ID ${esc(ids.msha_mine)} · pulled ${esc(p.as_of)}</p>
@@ -258,6 +260,7 @@
       <div class="row"><span class="lbl">Last inspection, any EPA program</span><span>${esc(p.last_inspection || 'none on record')}</span></div>
       <div class="row"><span class="lbl">Formal enforcement, 5 yrs</span><span>${p.formal_actions_5y ?? '—'}</span></div>
       ${link ? `<div class="btns"><button type="button" class="btn" data-mine="${esc(link.mine_id)}">${link.confidence === 'high' ? 'Same Kentucky mine permit as' : 'Possibly the same site as'} mine: ${esc(link.mine)} →</button></div>` : ''}
+      <div class="btns">${packBtn('facility', { ...p, ids }, p.name + (ids.frs ? ' (EPA FRS ' + ids.frs + ')' : ''))}</div>
       <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA ECHO facility report</a>` : 'EPA ECHO'} · ICIS-NPDES permits, inspections and enforcement · ECHO effluent charts · pulled ${esc(p.as_of)}</p>
       <p class="src pro">IDS: FRS ${esc(ids.frs)}${permits.length ? ' · NPDES ' + permits.map((x) => esc(x.id)).join(', ') : ''}${triInfo ? ' · TRI ' + esc(triInfo.tri_id) : ''}</p>`);
   }
@@ -361,6 +364,7 @@
           <ol class="hist">${r.chemicals.slice(0, 8).map((c) => `<li><b>${esc(c.name)}</b>${c.carcinogen ? ' <span class="hot">carcinogen</span>' : ''}${c.pfas ? ' <span class="hot">PFAS</span>' : ''}${c.pbt ? ' <span class="warm">builds up in bodies</span>' : ''}<span class="when">${num(c.lbs)} lbs · air ${num(c.air)} · water ${num(c.water)}</span></li>`).join('')}</ol>
           <p class="note">Self-reported by the facility. Most releases are legal under permits; this shows amounts, not violations. Amounts are not health effects.</p>
           <p class="src"><a href="${esc(r.source_url)}" target="_blank" rel="noopener">EPA TRI facility profile</a></p>`; })()}
+      <div class="btns">${packBtn('tri', p, p.name + ' (TRI ' + (ids.tri || '') + ')')}</div>
       <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA facility report</a>` : 'EPA Toxics Release Inventory'} · pulled ${esc(p.as_of)}</p>
       <p class="src pro">IDS: TRI ${esc(ids.tri)}${ids.frs ? ' · FRS ' + esc(ids.frs) : ''}</p>`);
   }
@@ -594,7 +598,7 @@
           <p class="lede2">${num(allMines.length)} mine${allMines.length === 1 ? '' : 's'} pulled into one family from MSHA records · ${num(opList.length)} operating compan${opList.length === 1 ? 'y' : 'ies'} · ${esc(yr(M.first) || '?')}–${M.last ? esc(yr(M.last)) : 'now'}</p>
           <div class="fp-ids"><span>MSHA controller ${esc(f.controller_id)}</span>${opList.slice(0, 4).map((o) => o.id ? `<span class="pro">operator ${esc(o.id)}</span>` : '').join('')}${(() => { const l = leiFor([isPerson ? null : f.controller].filter(Boolean)); return l.length ? l.map((x) => `<span>LEI ${esc(x.e.lei)}</span>`).join('') : `<span>LEI · ${parents ? 'none found' : 'not linked yet'}</span>`; })()}<span>State registry · not linked yet</span></div>
         </div>
-        <div class="btns"><button type="button" class="btn" data-fpmap="__all">Show on the map</button><button type="button" class="btn primary" data-letter="${esc(famLetter)}">Request MSHA records</button></div>
+        <div class="btns"><button type="button" class="btn" data-fpmap="__all">Show on the map</button><button type="button" class="btn primary" data-letter="${esc(famLetter)}">Request MSHA records</button>${packBtn('family', f, f.controller + ' family (MSHA controller ' + f.controller_id + ')')}</div>
       </section>
       <section class="fp-kpis" aria-label="Family totals">
         ${kpi('Mines in family', num(allMines.length), `${num(active)} active now · ${num(opList.length)} companies`, 'MSHA · ' + esc(f.as_of))}
@@ -739,6 +743,131 @@
       <li><a class="rlink" href="https://www.courtlistener.com/?q=%22${q}%22" target="_blank" rel="noopener">CourtListener (lawsuits and bankruptcies)</a></li>
     </ul><p class="note">These search by name, so a result may be a different company with a similar name. Match addresses, officers or ID numbers before relying on one.</p></details>`;
   }
+
+  // ---- Evidence packs: a zip of exactly what's shown, the records behind it, and how to verify each one.
+  const packs = {}; let packSeq = 0;
+  function packBtn(kind, p, title) {
+    const key = 'P' + (++packSeq);
+    packs[key] = { kind, p, title };
+    return `<button type="button" class="btn" data-pack="${key}">Download evidence pack ⤓</button>`;
+  }
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = (b) => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function zipStore(files) { // files: [{name, data: Uint8Array}] -> Blob (ZIP, no compression)
+    const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+    const d = new Date(), dt = ((d.getFullYear() - 1980) << 25) | ((d.getMonth() + 1) << 21) | (d.getDate() << 16) | (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    for (const f of files) {
+      const name = enc.encode(f.name), crc = crc32(f.data), n = f.data.length;
+      const h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+      h.setUint32(10, dt, true); h.setUint32(14, crc, true); h.setUint32(18, n, true); h.setUint32(22, n, true); h.setUint16(26, name.length, true);
+      parts.push(new Uint8Array(h.buffer), name, f.data);
+      const c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+      c.setUint32(12, dt, true); c.setUint32(16, crc, true); c.setUint32(20, n, true); c.setUint32(24, n, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+      central.push(new Uint8Array(c.buffer), name);
+      off += 30 + name.length + n;
+    }
+    const cs = central.reduce((a, x) => a + x.length, 0);
+    const e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cs, true); e.setUint32(16, off, true);
+    return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: 'application/zip' });
+  }
+  async function sha256hex(u8) {
+    const h = await crypto.subtle.digest('SHA-256', u8);
+    return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  const deep = (v) => { if (typeof v === 'string' && /^[\[{]/.test(v)) { try { return deep(JSON.parse(v)); } catch (e) { return v; } } if (Array.isArray(v)) return v.map(deep); if (v && typeof v === 'object') { const o = {}; for (const [k, x] of Object.entries(v)) o[k] = deep(x); return o; } return v; };
+  function archivedFor(kind, rec) {
+    const files = archiveIdx?.files || [];
+    const pick = (fn) => files.filter(fn);
+    const permitIds = new Set([...(rec.permits || []), ...(rec.epa || []).flatMap((e) => e.permits || [])].map((x) => x.id));
+    const want = [];
+    if (kind === 'mine' || kind === 'family') want.push(...pick((f) => f.source === 'msha'));
+    if (kind === 'facility' || kind === 'mine' || kind === 'family') {
+      want.push(...pick((f) => f.source === 'epa-npdes'));
+      want.push(...pick((f) => f.source === 'epa-effluent' && [...permitIds].some((id) => f.file === `effluent-${id}.csv`)));
+    }
+    if (kind === 'facility') want.push(...pick((f) => f.source === 'echo'));
+    if (kind === 'tri' || rec.tri) want.push(...pick((f) => f.source === 'envirofacts' && /^tri-/.test(f.file)), ...pick((f) => f.source === 'epa-tri-basic'));
+    if ((rec.ky_permits || []).length || kind === 'family') want.push(...pick((f) => f.source === 'ky-mine-permits'));
+    if ((rec.pending || []).length) want.push(...pick((f) => f.source === 'ky-esearch'));
+    if (kind === 'family') {
+      want.push(...pick((f) => f.source === 'gleif' && (rec.leis || []).some((l) => f.file === `lei-${l}.json`)));
+      want.push(...pick((f) => f.source === 'ky-sos' && (rec.registry_files || []).some((n) => f.file.startsWith(n.replace(/\.html$/, '')))));
+    }
+    return [...new Map(want.map((f) => [f.path, f])).values()];
+  }
+  function liveSources(kind, rec) {
+    const out = [];
+    const add = (what, url, when) => url && out.push({ what, url, when: when || '' });
+    add('Record page', rec.source_url, rec.as_of);
+    for (const e of rec.epa || []) add(`EPA facility report: ${e.name}`, e.source_url, '');
+    for (const pm of rec.permits || []) if (pm.exceed?.url) add(`EPA effluent charts: ${pm.id}`, pm.exceed.url, '');
+    for (const i of rec.pending || []) add(`State pending action: ${i.name}`, i.url, i.stage_date);
+    for (const a of rec.money_awards || []) add(`USAspending: ${a.recipient}`, a.url, a.date);
+    for (const c of rec.court_cases || []) add(`Court docket: ${c.case}`, c.url, c.filed);
+    for (const r of rec.registry || []) add(`Kentucky business record: ${r.legal_name}`, r.url, r.pulled);
+    for (const l of rec.lei_records || []) add(`GLEIF: ${l.legal_name}`, l.url, '');
+    return out;
+  }
+  async function buildPack(key) {
+    const P = packs[key]; if (!P) return;
+    const shown = (P.kind === 'family' ? $('familyPage') : $('detailBody')).cloneNode(true);
+    shown.querySelectorAll('button, textarea, .btns').forEach((x) => x.remove());
+    const rec = deep(P.p);
+    if (P.kind === 'family') {
+      const names = [rec.controller, ...(rec.operators || []).map((o) => o.name)];
+      const lei = leiFor(names), reg = regFor(names), mo = moneyFor(names);
+      rec.mines_records = (rec.mines || []).map((m) => mineById[m.id] ? deep(mineById[m.id].properties) : m);
+      rec.epa = rec.mines_records.flatMap((m) => m.epa || []);
+      rec.lei_records = lei.map((x) => x.e); rec.leis = rec.lei_records.flatMap((e) => [e.lei, e.direct_parent?.lei, e.ultimate_parent?.lei].filter(Boolean));
+      rec.registry = reg.map((x) => x.r); rec.registry_files = rec.registry.flatMap((r) => r.archived || []);
+      rec.money_awards = mo.awards; rec.court_cases = mo.cases; rec.pacs = mo.pacs; rec.lobbying = mo.lobby;
+    }
+    const arch = archivedFor(P.kind, rec), live = liveSources(P.kind, rec);
+    const made = new Date().toISOString();
+    const enc = new TextEncoder();
+    const recordsJson = enc.encode(JSON.stringify({ pack: { kind: P.kind, title: P.title, made_utc: made, data_pulled: meta.pulled, site: location.origin + location.pathname },
+      record: rec, archived_originals: arch, archive_release: archiveIdx?.release || null }, null, 1));
+    const packId = (await sha256hex(recordsJson)).slice(0, 16);
+    const csvEsc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const sourcesCsv = enc.encode(['kind,description,url_or_path,pulled_utc,sha256,bytes',
+      ...arch.map((f) => ['archived original', `${f.source}/${f.file} (from ${f.url})`, f.path, f.pulled_utc, f.sha256, f.bytes].map(csvEsc).join(',')),
+      ...live.map((x) => ['live source', x.what, x.url, x.when, '', ''].map(csvEsc).join(','))].join('\n'));
+    const rel = archiveIdx?.release;
+    const summary = enc.encode(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Evidence pack: ${esc(P.title)}</title>
+<style>body{font:15px/1.5 Georgia,serif;max-width:860px;margin:32px auto;padding:0 20px;color:#111}h1{font-size:26px;margin:0 0 4px}.meta{font:12px/1.6 monospace;color:#444;border:1px solid #ccc;padding:10px 12px;border-radius:6px;margin:12px 0 24px}
+.shown{border-top:2px solid #111;padding-top:12px}.shown *{color:#111!important;background:none!important;border-color:#bbb!important}.shown .hot{color:#a1260f!important;font-weight:600}.shown svg{display:none}
+.row{display:flex;gap:12px;justify-content:space-between;border-bottom:1px solid #eee;padding:4px 0}.lbl{color:#555!important}table{border-collapse:collapse;width:100%;font:12px monospace}td,th{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top;word-break:break-all}
+@media print{a{color:#111}}</style></head><body>
+<h1>Evidence pack: ${esc(P.title)}</h1>
+<div class="meta">Pack ID ${packId} · made ${made} · data pulled ${esc(meta.pulled || '?')} · from People's Case File (${esc(location.origin + location.pathname)})<br>
+Everything below is what the site showed, built only from public records. “Linked to” never means “did this”. Flags are questions to ask, not findings of wrongdoing. Not legal advice.</div>
+<div class="shown">${shown.innerHTML}</div>
+<h2>Archived originals behind this record</h2>
+<p>Unmodified copies saved when the data was pulled, each with its SHA-256 fingerprint. They are inside ${rel ? `<a href="${esc(rel.download)}">${esc(rel.asset)}</a> in the public release <a href="${esc(rel.page)}">${esc(rel.tag)}</a>` : 'the monthly archive release'}.</p>
+<table><tr><th>File (path in archive)</th><th>Original source</th><th>Pulled (UTC)</th><th>SHA-256</th></tr>${arch.map((f) => `<tr><td>${esc(f.path)}</td><td>${esc(f.url)}</td><td>${esc(f.pulled_utc)}</td><td>${esc(f.sha256)}</td></tr>`).join('') || '<tr><td colspan="4">None archived on this pull date for this record; see live sources.</td></tr>'}</table>
+<h2>Live sources</h2><table><tr><th>What</th><th>Link</th><th>Date</th></tr>${live.map((x) => `<tr><td>${esc(x.what)}</td><td><a href="${esc(x.url)}">${esc(x.url)}</a></td><td>${esc(x.when)}</td></tr>`).join('')}</table>
+<h2>How to verify</h2><ol><li>Download the archive release above and extract it (join .part files first if it was split).</li><li>Run <code>sha256sum</code> on each file listed and compare with the fingerprints here.</li><li>Check SHA256SUMS.txt in this pack against the pack's own files.</li><li>Re-open each live source; agency records can change after the pull date.</li></ol>
+</body></html>`);
+    const readme = enc.encode(`People's Case File: evidence pack ${packId}\n\n${P.title}\nMade ${made}. Data pulled ${meta.pulled || '?'}.\n\nFiles:\n  summary.html   what the site showed, printable, with every source\n  records.json   the exact records behind it (machine-readable)\n  sources.csv    archived originals (path, original URL, pull time, SHA-256) and live sources\n  SHA256SUMS.txt fingerprints of the files in this pack\n\nArchived originals: ${rel ? rel.page : 'monthly GitHub release'}\n${rel ? rel.note : ''}\n\nPublic records only. "Linked to" never means "did this". Not legal advice.\n`);
+    const files = [{ name: 'README.txt', data: readme }, { name: 'summary.html', data: summary }, { name: 'records.json', data: recordsJson }, { name: 'sources.csv', data: sourcesCsv }];
+    const sums = [];
+    for (const f of files) sums.push(`${await sha256hex(f.data)}  ${f.name}`);
+    files.push({ name: 'SHA256SUMS.txt', data: enc.encode(sums.join('\n') + '\n') });
+    const slug = P.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(zipStore(files));
+    a.download = `evidence-${slug}-${(meta.pulled || made).slice(0, 10)}.zip`;
+    document.body.appendChild(a); a.click(); a.remove();
+    return { packId, archived: arch.length, live: live.length };
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pack]'); if (!b) return;
+    const old = b.textContent; b.textContent = 'Building…';
+    buildPack(b.dataset.pack).then(() => { b.textContent = 'Downloaded ✓'; setTimeout(() => (b.textContent = old), 2500); }, (err) => { console.error(err); b.textContent = 'Could not build pack'; });
+  });
 
   // ---- Records-request letters (open records / FOIA). Drafts only, not legal advice.
   const AGENCIES = {
