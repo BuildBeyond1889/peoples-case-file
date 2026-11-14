@@ -53,6 +53,7 @@
   let facFeatures = [];
   const water = {};       // area id -> {label, systems}
   const letters = {};     // key -> letter spec
+  let money = null;       // money.json: USAspending / FEC / CourtListener by normalized name
   const intro = $('detailBody').innerHTML;
 
   async function loadData() {
@@ -63,6 +64,7 @@
       for (const [k, f] of Object.entries(idx.layers)) byLayer[k] = await getJSON('data/' + f);
       try { for (const f of await getJSON('data/families.json')) families[f.controller_id] = f; } catch (e) {}
       try { for (const w of await getJSON('data/water.json')) water[w.area] = w; } catch (e) {}
+      try { money = await getJSON('data/money.json'); } catch (e) {}
     } catch (e) {
       const s = await getJSON('data/sample.geojson');
       for (const L of LAYERS) byLayer[L.id] = { type: 'FeatureCollection', features: s.features.filter((f) => f.properties.layer === L.id) };
@@ -295,6 +297,23 @@
   }
   const activeAt = (p, d) => d === 'all' || ((p.start || '0000') <= d && (!p.end || p.end >= d));
 
+  const normName = (n) => (n || '').toLowerCase().replace(/\b(llc|l\.l\.c|inc|incorporated|co|corp|corporation|company|ltd|lp|llp|the|of)\b\.?/g, ' ').match(/[a-z0-9]+/g)?.join(' ') || '';
+  function moneyFor(names) {
+    const recs = names.map((n) => money?.by_name?.[normName(n)]).filter(Boolean);
+    const agg = { contracts: 0, grants: 0, loans: 0, awards: [], similar: 0, pacs: [], cases: [], casesCount: 0, looked: recs.length };
+    for (const r of recs) {
+      for (const g of ['contracts', 'grants', 'loans']) {
+        const x = r.usaspending?.[g]; if (!x) continue;
+        agg[g] += x.total || 0; agg.similar += x.similar_not_counted || 0;
+        agg.awards.push(...(x.top || []).map((a) => ({ ...a, group: g, matched: r.name })));
+      }
+      for (const c of r.fec || []) agg.pacs.push({ ...c, matched: r.name });
+      if (r.courts) { agg.casesCount += r.courts.count || 0; agg.cases.push(...(r.courts.cases || []).map((c) => ({ ...c, matched: r.name }))); }
+    }
+    agg.total = agg.contracts + agg.grants + agg.loans;
+    agg.awards.sort((a, b) => (b.amount || 0) - (a.amount || 0));
+    return agg;
+  }
   let famState = { cid: null, asOf: 'all', sel: null };
   function renderFamilyPage(cid, opts) {
     const M = familyModel(cid);
@@ -313,6 +332,9 @@
     const isPerson = (f.controller_type || '').toUpperCase().startsWith('P');
     const opList = Object.values(M.ops);
     const changes = allMines.filter((x) => parse(x.properties.history, []).length > 1).length;
+    const mo = moneyFor([f.controller, ...opList.map((o) => o.name)]);
+    const courtsOn = money?.courts === 'on';
+    const bk = mo.cases.filter((c) => c.bankruptcy);
 
     // as-of year buttons
     const years = [...new Set(opList.flatMap((o) => Object.values(o.mines).flatMap((m) => m.periods.map((p) => yr(p.start)))).filter(Boolean))].sort();
@@ -404,8 +426,10 @@
         ${kpi('Penalties owed', usd(v.due || 0), paidPct == null ? '—' : `${paidPct}% paid (${usd(v.paid || 0)})`, 'MSHA assessments', paidPct != null && paidPct < 50 ? 'hotk' : '')}
         ${kpi('EPA sites linked', num(epaLinks.length), `${num(highEpa.length)} high-priority flags`, 'EPA ECHO · inferred links', highEpa.length ? 'hotk' : '')}
         ${kpi('Worst-quarter mines', rated ? num(worst) + '<span class="of"> / ' + num(rated) + '</span>' : '—', 'citations per inspection vs Harlan', 'MSHA inspections')}
-        ${kpi('Public money received', '<span class="empty">—</span>', 'contracts, PPP loans, grants', 'not collected yet', 'emptyk')}
-        ${kpi('Court cases', '<span class="empty">—</span>', 'lawsuits, bankruptcies', 'not collected yet', 'emptyk')}
+        ${!money || !mo.looked ? kpi('Public money received', '<span class="empty">—</span>', 'contracts, loans, grants', money ? 'not looked up for this family yet' : 'not collected yet', 'emptyk')
+          : kpi('Public money received', usd(mo.total), `contracts ${usd(mo.contracts)} · loans ${usd(mo.loans)} · grants ${usd(mo.grants)}`, 'USAspending · matched by name')}
+        ${!courtsOn ? kpi('Court cases', '<span class="empty">—</span>', 'lawsuits, bankruptcies', 'needs a free CourtListener token', 'emptyk')
+          : kpi('Court cases', num(mo.casesCount), `${num(bk.length)} in bankruptcy courts`, 'CourtListener · matched by name', bk.length ? 'hotk' : '')}
       </section>
       <section class="fp-main">
         <div class="fp-graph">
@@ -419,16 +443,25 @@
       </section>
       <section class="fp-pats" aria-label="Patterns">
         <article class="pat coral"><span class="eyebrow">LIABILITY PATTERN</span><h3>Operator changes: ${num(changes)} of ${num(allMines.length)} mines</h3>
-          <p>These mines changed operating company at least once. Whether liabilities were left behind needs bankruptcy and reclamation-bond records.</p><p class="emptynote">Bankruptcy + bond records: not collected yet</p></article>
+          <p>These mines changed operating company at least once.${bk.length ? ` Bankruptcy-court dockets found by name: ${bk.slice(0, 3).map((c) => `<a href="${esc(c.url || '#')}" target="_blank" rel="noopener">${esc(c.case)}</a> (${esc(c.court_id)}, ${esc(c.filed || '')})`).join('; ')}.` : ''}</p>
+          <p class="emptynote">${courtsOn ? 'Reclamation-bond records: not collected yet' : 'Bankruptcy records need a free CourtListener token · bond records not collected yet'}</p></article>
         <article class="pat amber"><span class="eyebrow">SILENCE DETECTOR</span><h3>${highEpa.length ? num(highEpa.length) + ' high-priority EPA site' + (highEpa.length === 1 ? '' : 's') : 'No high-priority EPA flags'}</h3>
           ${highEpa.slice(0, 2).map((e) => `<p><b>${esc(e.name)}</b> · ${esc((e.flags || [])[0]?.label || '')}</p>`).join('') || '<p>No linked EPA site has a high-priority flag.</p>'}
           ${highEpa.length ? `<button type="button" class="linkbtn" data-letter="${esc(regFacilityLetter(highEpa[0], parse(highEpa[0].mine.properties.ids, {})))}">Draft a records request →</button>` : ''}</article>
-        <article class="pat steel empty"><span class="eyebrow">MONEY TIMING · NOT PROOF</span><h3>Donations and lobbying</h3><p>Campaign donations and lobbying lined up against permits and enforcement.</p><p class="emptynote">FEC, state campaign finance, lobbying: not collected yet</p></article>
+        ${mo.pacs.length ? `<article class="pat steel"><span class="eyebrow">MONEY OUT · FEDERAL PACS · BY NAME</span><h3>${num(mo.pacs.length)} political committee${mo.pacs.length === 1 ? '' : 's'} tied to these companies</h3>
+          ${mo.pacs.slice(0, 2).map((c) => `<p><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.committee)}</a> · ${esc(c.type || '')} · cycles ${esc((c.cycles || []).slice(0, 1).concat((c.cycles || []).slice(-1)).join('–'))}${(c.top_recipients || []).length ? '<br>Top recipients: ' + c.top_recipients.slice(0, 3).map((r) => esc(r.recipient) + ' ' + usd(r.total)).join(' · ') : ''}</p>`).join('')}
+          <p class="emptynote">Timing vs permits and enforcement, plus state donations and lobbying: not collected yet</p></article>`
+        : `<article class="pat steel empty"><span class="eyebrow">MONEY TIMING · NOT PROOF</span><h3>Donations and lobbying</h3><p>${money ? 'No federal PAC found by name for these companies.' : 'Campaign donations and lobbying lined up against permits and enforcement.'}</p><p class="emptynote">State campaign finance and lobbying: not collected yet</p></article>`}
         <article class="pat green"><span class="eyebrow">CREDIT WHERE IT’S DUE</span><h3>${credit.length ? num(credit.length) + ' mine' + (credit.length === 1 ? '' : 's') + ' in the best quarter' : 'No standout clean records yet'}</h3>
           <p>${credit.length ? 'Fewer citations per inspection than 75% of Harlan mines: ' + credit.slice(0, 3).map((x) => esc(x.properties.name)).join(', ') + (credit.length > 3 ? '…' : '') + '.' : 'Mines with low citation rates will show here.'}${cleanEpa.length ? ' ' + num(cleanEpa.length) + ' linked EPA site' + (cleanEpa.length === 1 ? ' has' : 's have') + ' zero quarters out of compliance.' : ''}</p></article>
       </section>
+      ${(mo.awards.length || mo.cases.length) ? `<section class="fp-time"><h2 class="serif">Money and courts</h2>
+        <p class="muted-s">Found by searching each company name. Counted only when the name matches exactly (ignoring LLC, Inc…) and the address is in KY, VA, WV or TN.${mo.similar ? ' ' + num(mo.similar) + ' similar-name results were left out.' : ''} Check each record before relying on it.</p>
+        ${mo.awards.length ? `<details open><summary>Federal money (${num(mo.awards.length)} largest awards)</summary><ol class="hist">${mo.awards.slice(0, 12).map((a) => `<li><b>${usd(a.amount)}</b> ${esc(a.group.replace(/s$/, ''))} · ${esc(a.agency || '')}<span class="when">${esc(a.recipient)} · ${esc(a.date || '')}${a.what ? ' · ' + esc(a.what) : ''} ${a.url ? `· <a href="${esc(a.url)}" target="_blank" rel="noopener">USAspending</a>` : ''}</span></li>`).join('')}</ol></details>` : ''}
+        ${mo.cases.length ? `<details open><summary>Court dockets (${num(mo.casesCount)} found, latest shown)</summary><ol class="hist">${mo.cases.slice(0, 12).map((c) => `<li><b>${esc(c.case)}</b>${c.bankruptcy ? ' <span class="hot">bankruptcy court</span>' : ''}<span class="when">${esc(c.court || c.court_id)} · filed ${esc(c.filed || '?')}${c.nature ? ' · ' + esc(c.nature) : ''} ${c.url ? `· <a href="${esc(c.url)}" target="_blank" rel="noopener">docket</a>` : ''}</span></li>`).join('')}</ol></details>` : ''}
+      </section>` : ''}
       <section class="fp-time"><h2 class="serif">Who ran what, when</h2><p class="muted-s">Each bar is an operating company while this controller held it (MSHA controller records). Open bars are still running.</p>${timeline}</section>
-      <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>
+      <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · USAspending, FEC, CourtListener (matched by name) · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>
     </div>`;
   }
 

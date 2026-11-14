@@ -833,6 +833,131 @@ def sdwis():
     return out, feats
 
 
+# ------------------------------------- money in, money out, courts (by name) ----
+# None of these sources share an ID with MSHA, so every match is BY NAME and labelled:
+#   medium = same name after removing suffixes AND a KY/VA/WV/TN address; low = similar name only (not counted).
+SUFFIX = re.compile(r'\b(llc|l\.l\.c|inc|incorporated|co|corp|corporation|company|ltd|lp|llp|the|of)\b\.?', re.I)
+REGION = {'KY', 'VA', 'WV', 'TN'}
+
+
+def norm_name(n):
+    n = SUFFIX.sub(' ', (n or '').lower())
+    return ' '.join(re.findall(r'[a-z0-9]+', n))
+
+
+def post_json(url, body, timeout=90):
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={'User-Agent': UA, 'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        out = r.read()
+    time.sleep(0.6)
+    return out
+
+
+AWARD_GROUPS = {'contracts': ['A', 'B', 'C', 'D'], 'grants': ['02', '03', '04', '05'], 'loans': ['07', '08']}
+
+
+def usaspending(name):
+    res = {}
+    for group, codes in AWARD_GROUPS.items():
+        body = {'filters': {'recipient_search_text': [name], 'award_type_codes': codes,
+                            'time_period': [{'start_date': '2007-10-01', 'end_date': TODAY}]},
+                'fields': ['Award ID', 'Recipient Name', 'Award Amount', 'Loan Value', 'Awarding Agency', 'Start Date', 'Description',
+                           'Place of Performance State Code', 'Recipient Location', 'generated_internal_id'],
+                'limit': 50, 'page': 1, 'sort': 'Award Amount' if group != 'loans' else 'Loan Value', 'order': 'desc'}
+        try:
+            data = json.loads(post_json('https://api.usaspending.gov/api/v2/search/spending_by_award/', body))
+        except Exception as e:
+            log('USAspending failed for', name, repr(e))
+            continue
+        kept, similar = [], 0
+        for r in data.get('results', []):
+            loc = r.get('Recipient Location') or {}
+            st = loc.get('state_code') if isinstance(loc, dict) else None
+            same = norm_name(r.get('Recipient Name')) == norm_name(name)
+            if same and (st in REGION or r.get('Place of Performance State Code') in REGION):
+                amt = r.get('Loan Value') if group == 'loans' else r.get('Award Amount')
+                kept.append({'id': r.get('Award ID'), 'recipient': r.get('Recipient Name'), 'amount': amt or 0,
+                             'agency': r.get('Awarding Agency'), 'date': r.get('Start Date'), 'what': (r.get('Description') or '')[:140],
+                             'url': f"https://www.usaspending.gov/award/{r.get('generated_internal_id')}" if r.get('generated_internal_id') else None})
+            else:
+                similar += 1
+        if kept or similar:
+            res[group] = {'total': round(sum(float(k['amount'] or 0) for k in kept), 2), 'count': len(kept), 'top': kept[:5], 'similar_not_counted': similar}
+    return res
+
+
+def fec(name, key):
+    try:
+        url, body = fetch('https://api.open.fec.gov/v1/committees/', {'q': name, 'api_key': key, 'per_page': 5})
+    except Exception as e:
+        log('FEC failed for', name, repr(e))
+        return None
+    out = []
+    for c in json.loads(body).get('results', []):
+        org = c.get('affiliated_committee_name') or c.get('name') or ''
+        if norm_name(name) and norm_name(name) in norm_name(org):
+            item = {'committee_id': c.get('committee_id'), 'committee': c.get('name'), 'connected_org': c.get('affiliated_committee_name'),
+                    'type': c.get('committee_type_full'), 'cycles': c.get('cycles', []),
+                    'url': f"https://www.fec.gov/data/committee/{c.get('committee_id')}/"}
+            # who the PAC gave to (federal candidates and committees: public roles)
+            try:
+                _, b2 = fetch('https://api.open.fec.gov/v1/schedules/schedule_b/by_recipient/', {'committee_id': c.get('committee_id'), 'api_key': key, 'per_page': 8, 'sort': '-total'})
+                item['top_recipients'] = [{'recipient': r.get('recipient_name'), 'total': r.get('total'), 'cycle': r.get('cycle')}
+                                          for r in json.loads(b2).get('results', [])]
+            except Exception as e:
+                log('FEC schedule_b failed', c.get('committee_id'), repr(e))
+            out.append(item)
+    return out
+
+
+def courtlistener(name, token):
+    q = urllib.parse.quote(f'"{name}"')
+    req = urllib.request.Request(f'https://www.courtlistener.com/api/rest/v4/search/?q={q}&type=r&order_by=dateFiled%20desc',
+                                 headers={'User-Agent': UA, 'Authorization': f'Token {token}'})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = json.loads(r.read())
+        time.sleep(1)
+    except Exception as e:
+        log('CourtListener failed for', name, repr(e))
+        return None
+    cases = []
+    for d in data.get('results', [])[:25]:
+        court = d.get('court_id') or ''
+        cases.append({'case': d.get('caseName'), 'court': d.get('court') or court, 'court_id': court, 'filed': d.get('dateFiled'),
+                      'docket': d.get('docketNumber'), 'nature': d.get('suitNature'),
+                      'bankruptcy': court.endswith('b'),
+                      'url': 'https://www.courtlistener.com' + d['docket_absolute_url'] if d.get('docket_absolute_url') else None})
+    return {'count': data.get('count', len(cases)), 'cases': cases}
+
+
+def money_and_courts(families, max_controllers=40):
+    """Look up the biggest company controllers and their operating companies in USAspending, FEC and CourtListener."""
+    fec_key = os.environ.get('FEC_API_KEY') or 'DEMO_KEY'
+    cl_token = os.environ.get('COURTLISTENER_TOKEN')
+    top = [f for f in families if not (f.get('controller_type') or '').upper().startswith('P') and f.get('viol')]
+    top = sorted(top, key=lambda f: -(f['viol'] or {}).get('total', 0))[:max_controllers]
+    names = []
+    for f in top:
+        names.append(f['controller'])
+        names += [o['name'] for o in f.get('operators', [])[:4] if o.get('name')]
+    names = list(dict.fromkeys(n for n in names if n and norm_name(n)))
+    out = {'as_of': TODAY, 'rules': 'Matched by name. Counted only when the name matches after removing suffixes (LLC, Inc...) and the '
+           'recipient is in KY, VA, WV or TN. Similar names are listed as not counted.',
+           'fec_key': 'personal' if fec_key != 'DEMO_KEY' else 'demo', 'courts': 'on' if cl_token else 'needs_token', 'by_name': {}}
+    fec_budget = 400 if fec_key != 'DEMO_KEY' else 12
+    for n in names:
+        rec = {'name': n, 'usaspending': usaspending(n)}
+        if fec_budget > 0:
+            rec['fec'] = fec(n, fec_key)
+            fec_budget -= 2
+        if cl_token:
+            rec['courts'] = courtlistener(n, cl_token)
+        out['by_name'][norm_name(n)] = rec
+    log(f"Money/courts: looked up {len(names)} names; courts {'on' if cl_token else 'off (no token)'}; FEC key {out['fec_key']}")
+    return out
+
+
 def write_json(name, obj):
     os.makedirs(OUT, exist_ok=True)
     json.dump(obj, open(os.path.join(OUT, name), 'w'), separators=(',', ':'))
@@ -841,7 +966,7 @@ def write_json(name, obj):
 
 def main():
     layers, report = {}, {}
-    feats = []
+    feats, families = [], []
     try:
         feats, families = msha(AREAS)
         write_json('families.json', families)
@@ -878,6 +1003,12 @@ def main():
         report['water_systems'] = sum(len(w['systems']) for w in water)
     except Exception as e:
         log('SDWIS failed:', repr(e))
+    try:
+        money = money_and_courts(families if feats else [])
+        write_json('money.json', money)
+        report['money_names'] = len(money['by_name'])
+    except Exception as e:
+        log('Money/courts failed:', repr(e))
     if feats and facilities:
         try:
             report['mine_epa_links'] = link_mines_epa(feats, facilities)

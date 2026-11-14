@@ -26,6 +26,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Run collector
+        env:
+          FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
+          COURTLISTENER_TOKEN: ${{ secrets.COURTLISTENER_TOKEN }}
         run: python collector/collect.py
       - name: Run report
         if: always()
