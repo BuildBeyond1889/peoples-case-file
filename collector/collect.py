@@ -58,6 +58,9 @@ def fetch(url, params=None, headers=None, timeout=300):
     req = urllib.request.Request(url, headers={'User-Agent': UA, **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         body = r.read()
+    if body[:2] == b'\x1f\x8b':      # some servers gzip even when not asked
+        import gzip
+        body = gzip.decompress(body)
     time.sleep(1)  # be polite
     return url, body
 
@@ -596,10 +599,17 @@ def link_mines_epa(mines, facilities, max_m=500):
                     continue
                 d = meters((fx, fy), m['geometry']['coordinates'])
                 r = fperm[common[0]]
+                mp_ = m['properties']
+                named = ftok & tokens(r.get('permittee'), mp_.get('name'), mp_.get('operator'), *[h.get('operator') for h in mp_.get('history', [])])
+                if not (coal or named):
+                    continue   # being inside a big permit area alone is not enough: stores and plants sit over old underground mines
                 basis = [f"both inside Kentucky mine permit {r['permit']}" + (f" (permittee {r['permittee']})" if r.get('permittee') else ''), f'{int(d)} m apart']
                 if coal:
                     basis.append('EPA lists it as coal mining')
-                cand = (2, -d, m, basis, 'high', d)
+                if named:
+                    basis.append('shared name: ' + ', '.join(sorted(named)[:3]))
+                conf = 'high' if coal else 'medium'
+                cand = (2 if conf == 'high' else 1, -d, m, basis, conf, d)
                 if best is None or cand[:2] > best[:2]:
                     best = cand
         for dx in (-0.01, 0, 0.01):
