@@ -97,7 +97,11 @@ body:not(.on-home) .home{display:none}
 .letter{width:100%;margin-top:12px;padding:12px;border-radius:10px;border:1px solid var(--line2);background:var(--card2);color:var(--ink);font:400 12.5px/1.5 var(--mono);resize:vertical}
 
 body.on-family main.wrap{display:none}
-body:not(.on-family) .fampage{display:none}
+body:not(.on-family) #familyPage{display:none}
+body.on-tree main.wrap{display:none}
+body:not(.on-tree) #treePage{display:none}
+body.on-tree #navTree{background:#171B22;color:var(--ink)}
+body.on-tree #navMap,body.on-tree #navHome{background:none;color:var(--muted)}
 body.on-family #navMap,body.on-family #navHome{background:none;color:var(--muted)}
 .fp-wrap{max-width:1360px;margin:0 auto;padding:24px max(20px,env(safe-area-inset-left)) 64px;display:flex;flex-direction:column;gap:24px}
 .fp-crumb{font:400 12px var(--mono);color:var(--muted)}.fp-crumb a{color:var(--muted);text-decoration:none}.fp-crumb span{color:var(--ink)}
@@ -181,3 +185,15 @@ body.on-family #navMap,body.on-family #navHome{background:none;color:var(--muted
 .pbadge{display:inline-block;width:max-content;font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--soft)}
 .pbadge.open{color:var(--coral);border-color:rgba(238,125,103,.55);background:rgba(238,125,103,.08)}
 .pendbox{margin:10px 0;padding:12px;border-radius:12px;border:1px solid rgba(238,125,103,.35);background:rgba(238,125,103,.05)}
+
+/* World tree */
+.tsearch{display:flex;gap:8px;margin:14px 0}.tsearch input{flex:1;min-width:0;padding:12px 14px;border-radius:12px;border:1px solid var(--line2);background:var(--card2);color:var(--ink);font:15px var(--sans)}
+.tsearch button{padding:0 18px;border-radius:12px;border:0;background:var(--amber);color:#14110a;font-weight:600;cursor:pointer}
+.tres{display:flex;flex-direction:column;gap:8px}.tres a{display:flex;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line);color:var(--ink);text-decoration:none}.tres a:hover{border-color:var(--steel)}
+.tchain{display:flex;flex-direction:column;gap:0;margin:10px 0}.tchain .tnode{padding:10px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line)}.tchain .tnode.me{border-color:var(--amber);background:rgba(227,164,78,.08)}
+.tchain .tarrow{margin-left:22px;height:18px;border-left:1px dashed var(--line2)}
+.tnode a{color:var(--ink);font-weight:600;text-decoration:none}.tnode a:hover{text-decoration:underline}
+.cc{font-family:var(--mono);font-size:10.5px;padding:2px 6px;border-radius:6px;border:1px solid var(--line2);color:var(--soft);margin-left:6px}.cc.foreign{color:var(--amber);border-color:rgba(227,164,78,.5)}
+.tkids{list-style:none;margin:6px 0 0 14px;padding:0 0 0 14px;border-left:1px solid var(--line2)}.tkids li{margin:6px 0}
+.tkids .exp{background:none;border:1px solid var(--line2);color:var(--soft);border-radius:6px;font:11px var(--mono);padding:1px 6px;margin-left:6px;cursor:pointer}
+.cbars{display:flex;flex-direction:column;gap:6px;margin:10px 0}.cbar{display:grid;grid-template-columns:150px 1fr 48px;gap:10px;align-items:center;font-size:13px}.cbar i{display:block;height:10px;border-radius:4px;background:var(--steel)}.cbar i.foreign{background:var(--amber)}

@@ -10,12 +10,12 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body class="on-home">
 <header class="top">
   <a class="brand" href="#" aria-label="Home"><span class="wordmark">People's Case File</span><span class="eyebrow">CURTAIN PULLER</span></a>
-  <nav class="views" aria-label="Views"><a href="#" id="navHome">Home</a><a href="#map" id="navMap">Map</a></nav>
+  <nav class="views" aria-label="Views"><a href="#" id="navHome">Home</a><a href="#map" id="navMap">Map</a><a href="#tree" id="navTree">World tree</a></nav>
   <form id="search" class="search" role="search">
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <label for="q" class="vh">Address, place, mine or company</label>
@@ -42,6 +42,7 @@
   </div>
   <div class="ways">
     <a class="way" href="#map/harlan"><span class="eyebrow">01</span><b>Start from a place</b><span>Your town, a creek, a road. See every mine and permitted site around it, and who runs them.</span></a>
+    <a class="way" href="#tree"><span class="eyebrow">00</span><b>Who owns what, anywhere</b><span>Search any registered company on earth. See who it reports as its parent, and every subsidiary in every country.</span></a>
     <a class="way" href="#map/harlan"><span class="eyebrow">02</span><b>Start from a company</b><span>Search a mine operator or controller. Open its family: every mine, every citation, every penalty.</span></a>
     <a class="way hot" href="#map/flags"><span class="eyebrow">03</span><b>Start from the silence</b><span>Sites with serious violations and little or no response from regulators, with a records request ready to send.</span></a>
   </div>
@@ -56,6 +57,7 @@
   <div id="homePending" class="pending" aria-live="polite"><p class="muted-s">Loading pending permits…</p></div>
 </section>
 <section id="familyPage" class="fampage" aria-label="Controller family"></section>
+<section id="treePage" class="fampage treepage" aria-label="World tree"></section>
 <main class="wrap">
   <div id="map" aria-label="Map"></div>
   <aside class="panel" id="detail" aria-live="polite">
@@ -83,6 +85,6 @@
 </main>
 <footer class="foot">Public records only · every fact links to its source · “linked to” never means “did this” · not legal advice · <a href="https://github.com/BuildBeyond1889/peoples-case-file" target="_blank" rel="noopener">How this works</a></footer>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

@@ -428,7 +428,7 @@
       : e[rel + '_exception'] ? `<li><span class="lbl2">${label}</span><b class="muted-b">None reported</b><span class="when">${esc(e[rel + '_exception'].plain)} (GLEIF reason: ${esc(e[rel + '_exception'].code)})</span></li>`
       : `<li><span class="lbl2">${label}</span><b class="muted-b">Not stated</b></li>`;
     const sameUltimate = e.ultimate_parent && e.direct_parent && e.ultimate_parent.lei === e.direct_parent.lei;
-    return `<div class="par-card"><p class="eyebrow">${esc(asName)}</p><div class="par-ent">${entLine(e)}${e.registered_at ? `<span class="when">LEI since ${esc(e.registered_at)}</span>` : ''}</div>
+    return `<div class="par-card"><p class="eyebrow">${esc(asName)} · <a href="#tree/${esc(e.lei)}">world tree →</a></p><div class="par-ent">${entLine(e)}${e.registered_at ? `<span class="when">LEI since ${esc(e.registered_at)}</span>` : ''}</div>
       <ol class="hist par">${up('direct', 'Direct parent')}${sameUltimate ? '' : up('ultimate', 'Ultimate parent')}</ol>
       ${e.children?.length ? `<details><summary>${num(e.children_total || e.children.length)} ${(e.children_total || e.children.length) === 1 ? 'company reports' : 'companies report'} it as their direct parent</summary><ol class="hist">${e.children.map((c) => `<li>${entLine(c)}</li>`).join('')}</ol></details>` : ''}</div>`;
   }
@@ -1015,13 +1015,143 @@ Everything below is what the site showed, built only from public records. “Lin
   map.on('load', () => loadData().then(markReady, markReady));
 
   // ---- Home page vs map (hash routing: '' = home, '#map', '#map/harlan', '#map/flint', '#map/flags')
+  // ---- World tree: any company with a Legal Entity Identifier, live from GLEIF (browser calls the public API directly).
+  const GL = 'https://api.gleif.org/api/v1/';
+  const glCache = new Map();
+  async function gl(path) {
+    if (glCache.has(path)) return glCache.get(path);
+    const pr = fetch(GL + path, { headers: { Accept: 'application/vnd.api+json' } }).then((r) => (r.status === 404 ? null : r.ok ? r.json() : Promise.reject(new Error('GLEIF ' + r.status))));
+    glCache.set(path, pr);
+    return pr;
+  }
+  const glEnt = (d) => { const a = d.attributes || {}, e = a.entity || {}; return { lei: d.id, name: e.legalName?.name || d.id, country: e.legalAddress?.country, region: e.legalAddress?.region, city: e.legalAddress?.city,
+    hq: e.headquartersAddress?.country, status: e.status, category: e.category, form: e.legalForm?.id, registered: (a.registration?.initialRegistrationDate || '').slice(0, 10), lastUpdate: (a.registration?.lastUpdateDate || '').slice(0, 10),
+    regStatus: a.registration?.status, hasKids: !!(d.relationships || {})['direct-children'] }; };
+  const ccTag = (c, home) => c ? `<span class="cc ${home && c !== home ? 'foreign' : ''}" title="${esc(CC[c] || c)}">${esc(c)}</span>` : '';
+  const treeLink = (e, home) => `<a href="#tree/${esc(e.lei)}">${esc(e.name)}</a>${ccTag(e.country, home)}`;
+  async function kidsOf(lei, max = 300) {
+    const out = []; let page = 1, total = 0;
+    while (out.length < max) {
+      const j = await gl(`lei-records/${lei}/direct-children?page[size]=100&page[number]=${page}`);
+      if (!j) break;
+      total = j.meta?.pagination?.total || 0;
+      out.push(...(j.data || []).map(glEnt));
+      if (page >= (j.meta?.pagination?.lastPage || 1)) break;
+      page++;
+    }
+    return { list: out, total };
+  }
+  async function renderTreeSearch(q, usOnly) {
+    const el = $('treePage');
+    el.innerHTML = `<div class="fp-wrap"><div class="fp-crumb"><a href="#">Home</a> / <span>World tree</span></div>
+      <p class="eyebrow">WORLD TREE · GLOBAL LEGAL ENTITY IDENTIFIER INDEX</p>
+      <h1 class="serif">Who owns what, anywhere</h1>
+      <p class="lede2">Search any company that holds a Legal Entity Identifier (LEI): most large companies, banks, funds, and anything that trades in financial markets. See the parent it reports, and its subsidiaries in every country.</p>
+      <form class="tsearch" id="treeForm"><input id="treeQ" type="search" placeholder="Try “Peabody Energy”, “Alpha Metallurgical”, “Javelin Global”" value="${esc(q || '')}" aria-label="Company name"><button>Search</button></form>
+      <label class="muted-s"><input type="checkbox" id="treeUS" ${usOnly ? 'checked' : ''}> US-registered companies only</label>
+      <div id="treeResults" class="tres" aria-live="polite">${q ? '<p class="muted-s">Searching…</p>' : ''}</div>
+      <p class="note">Many small private companies (most Kentucky coal LLCs) have no LEI, so they won’t appear here; use the Harlan map and family pages for those. Parents are what each company reported about itself to GLEIF.</p></div>`;
+    $('treeForm').onsubmit = (e) => { e.preventDefault(); const v = $('treeQ').value.trim(); if (v) location.hash = '#tree/q/' + encodeURIComponent(v) + ($('treeUS').checked ? '/us' : ''); };
+    if (!q) return;
+    try {
+      const j = await gl(`lei-records?filter[fulltext]=${encodeURIComponent(q)}${usOnly ? '&filter[entity.legalAddress.country]=US' : ''}&page[size]=20`);
+      const list = (j?.data || []).map(glEnt);
+      $('treeResults').innerHTML = list.length ? list.map((e) => `<a href="#tree/${esc(e.lei)}"><span><b>${esc(e.name)}</b>${ccTag(e.country)}${e.status === 'INACTIVE' ? ' <span class="muted-s">inactive</span>' : ''}</span><span class="muted-s">${esc(e.city || '')} · LEI ${esc(e.lei)}</span></a>`).join('')
+        + `<p class="muted-s">${num(j.meta?.pagination?.total || list.length)} match${(j.meta?.pagination?.total || list.length) === 1 ? '' : 'es'} in GLEIF${(j.meta?.pagination?.total || 0) > 20 ? '; showing the first 20. Add more of the name to narrow it.' : '.'}</p>`
+        : '<p class="muted-s">No company with an LEI matches that name. It may not have one; try the legal name, or search the Harlan map.</p>';
+    } catch (err) { $('treeResults').innerHTML = `<p class="flag">Could not reach GLEIF right now (${esc(err.message)}). Try again in a minute.</p>`; }
+  }
+  async function renderTree(lei) {
+    const el = $('treePage');
+    el.innerHTML = `<div class="fp-wrap"><p class="muted-s">Loading ${esc(lei)} from GLEIF…</p></div>`;
+    try {
+      const r = await gl(`lei-records/${lei}`);
+      if (!r) { el.innerHTML = `<div class="fp-wrap"><p class="flag">No LEI record ${esc(lei)}.</p><a class="btn" href="#tree">Search again</a></div>`; return; }
+      const me = glEnt(r.data);
+      const pub = r.meta?.goldenCopy?.publishDate?.slice(0, 10);
+      // walk up through direct parents
+      const chain = []; let cur = me.lei, stop = null;
+      for (let i = 0; i < 8; i++) {
+        const p = await gl(`lei-records/${cur}/direct-parent`);
+        if (p?.data) { const pe = glEnt(p.data); chain.unshift(pe); cur = pe.lei; continue; }
+        const ex = await gl(`lei-records/${cur}/direct-parent-reporting-exception`);
+        const code = ex?.data?.attributes?.reason || ex?.data?.attributes?.exceptionReason;
+        stop = code ? { code, at: cur } : null;
+        break;
+      }
+      const top = chain[0] || me;
+      const kids = me.hasKids ? await kidsOf(me.lei) : { list: [], total: 0 };
+      // countries across everything below (ultimate children), up to 1,000
+      let all = [], allTotal = 0;
+      if (me.hasKids) {
+        for (let pg = 1; pg <= 5; pg++) {
+          const j = await gl(`lei-records/${me.lei}/ultimate-children?page[size]=200&page[number]=${pg}`);
+          if (!j) break; allTotal = j.meta?.pagination?.total || 0; all.push(...(j.data || []).map(glEnt));
+          if (pg >= (j.meta?.pagination?.lastPage || 1)) break;
+        }
+      }
+      const byC = {}; for (const k of all) byC[k.country || '?'] = (byC[k.country || '?'] || 0) + 1;
+      const cs = Object.entries(byC).sort((a, b) => b[1] - a[1]); const mx = cs[0]?.[1] || 1;
+      const home = me.country;
+      const foreign = all.filter((k) => k.country && k.country !== home).length;
+      const ours = Object.values(families).filter((f) => [f.controller, ...(f.operators || []).map((o) => o.name)].some((n) => normName(n) === normName(me.name)));
+      const EXPL = { NATURAL_PERSONS: 'owned or controlled by one or more individuals (GLEIF does not name them)', NON_CONSOLIDATING: 'its parent does not consolidate it in financial statements', NO_KNOWN_PERSON: 'reports that no person or company controls it', NON_PUBLIC: 'parent kept private', BINDING_LEGAL_COMMITMENTS: 'parent kept private (legal commitment)', LEGAL_OBSTACLES: 'parent kept private (legal obstacle)', DISCLOSURE_DETRIMENTAL: 'parent kept private (says disclosure would be harmful)', DETRIMENT_NOT_EXCLUDED: 'parent kept private (says harm cannot be ruled out)', CONSENT_NOT_OBTAINED: 'parent kept private (no consent)', NO_LEI: 'parent exists but has no LEI' };
+      const q = encodeURIComponent(me.name);
+      el.innerHTML = `<div class="fp-wrap">
+        <div class="fp-crumb"><a href="#">Home</a> / <a href="#tree">World tree</a> / <span>${esc(me.name)}</span></div>
+        <section class="fp-head"><div class="fp-title">
+          <p class="eyebrow">LEGAL ENTITY · ${esc(CC[me.country] || me.country || '?')}${me.status ? ' · ' + esc(me.status) : ''}</p>
+          <h1 class="serif">${esc(me.name)}</h1>
+          <p class="lede2">${me.hasKids ? `${num(kids.total)} direct subsidiar${kids.total === 1 ? 'y' : 'ies'} · ${num(allTotal)} companies in all below it · ${num(foreign)} outside ${esc(CC[home] || home || 'its home country')}` : 'Reports no subsidiaries with LEIs'}${chain.length ? ` · ${num(chain.length)} level${chain.length === 1 ? '' : 's'} of parents above it` : ''}</p>
+          <div class="fp-ids"><span>LEI ${esc(me.lei)}</span>${me.city ? `<span>${esc(me.city)}${me.region ? ', ' + esc(me.region) : ''}</span>` : ''}${me.hq && me.hq !== me.country ? `<span>HQ ${esc(CC[me.hq] || me.hq)}</span>` : ''}${me.registered ? `<span>LEI since ${esc(me.registered)}</span>` : ''}${me.regStatus && me.regStatus !== 'ISSUED' ? `<span class="hot">LEI ${esc(me.regStatus.toLowerCase())}${me.lastUpdate ? ' since ' + esc(me.lastUpdate) : ''}</span>` : ''}</div>
+        </div><div class="btns"><a class="btn" href="https://search.gleif.org/#/record/${esc(me.lei)}" target="_blank" rel="noopener">GLEIF record</a>${ours.length ? `<a class="btn primary" href="#family/${esc(ours[0].controller_id)}">Open its Harlan family →</a>` : ''}</div></section>
+        <section class="fp-time"><h2 class="serif">Who’s above it</h2>
+          <div class="tchain">${chain.map((c) => `<div class="tnode">${treeLink(c, home)}<span class="when">LEI ${esc(c.lei)}${c.city ? ' · ' + esc(c.city) : ''}</span></div><div class="tarrow"></div>`).join('')}
+            <div class="tnode me"><b>${esc(me.name)}</b>${ccTag(me.country)}</div></div>
+          ${stop ? `<p class="muted-s"><b class="warm">No parent reported above ${esc(stop.at === me.lei ? me.name : top.name)}.</b> Reason given: ${esc(EXPL[stop.code] || stop.code.replace(/_/g, ' ').toLowerCase())} (GLEIF code ${esc(stop.code)}).</p>` : (!chain.length ? '<p class="muted-s">No parent information reported.</p>' : '')}
+        </section>
+        ${me.hasKids ? `<section class="fp-time"><h2 class="serif">Where it reaches</h2><p class="muted-s">Every company that reports it as its ultimate parent, by country of registration${allTotal > all.length ? ` (first ${num(all.length)} of ${num(allTotal)})` : ''}. Amber = outside its home country.</p>
+          <div class="cbars">${cs.slice(0, 15).map(([c, n]) => `<div class="cbar"><span>${esc(CC[c] || c)}</span><i class="${c !== home ? 'foreign' : ''}" style="width:${Math.max(2, (n / mx) * 100)}%"></i><span>${num(n)}</span></div>`).join('')}</div>${cs.length > 15 ? `<p class="muted-s">…and ${num(cs.length - 15)} more countries.</p>` : ''}</section>
+        <section class="fp-time"><h2 class="serif">Direct subsidiaries</h2><p class="muted-s">Click ▸ to open a branch. Each one is a company that reported this one as its direct parent.</p>
+          <ul class="tkids" id="treeKids">${kids.list.map((k) => `<li data-lei="${esc(k.lei)}">${treeLink(k, home)}${k.status === 'INACTIVE' ? ' <span class="muted-s">inactive</span>' : ''}${k.hasKids ? ' <button type="button" class="exp" data-kids="' + esc(k.lei) + '">▸ subsidiaries</button>' : ''}</li>`).join('')}</ul>
+          ${kids.total > kids.list.length ? `<p class="muted-s">Showing ${num(kids.list.length)} of ${num(kids.total)}. <a href="https://search.gleif.org/#/record/${esc(me.lei)}" target="_blank" rel="noopener">See all in GLEIF</a></p>` : ''}</section>` : ''}
+        <section class="fp-time"><h2 class="serif">Dig further</h2><ul class="mines-list">
+          <li><a class="rlink" href="https://www.sec.gov/edgar/search/#/q=%22${q}%22" target="_blank" rel="noopener">SEC filings mentioning it (subsidiary lists are Exhibit 21; mine lists are Exhibit 95)</a></li>
+          <li><a class="rlink" href="https://www.opensanctions.org/search/?q=${q}" target="_blank" rel="noopener">OpenSanctions (sanctions, politically exposed, debarment lists)</a></li>
+          <li><a class="rlink" href="https://opencorporates.com/companies?q=${q}" target="_blank" rel="noopener">OpenCorporates (state and foreign registries)</a></li>
+          <li><a class="rlink" href="https://www.courtlistener.com/?q=%22${q}%22" target="_blank" rel="noopener">CourtListener (lawsuits and bankruptcies)</a></li></ul>
+          <p class="note">These search by name, so results can include different companies with similar names.</p></section>
+        <p class="src">SOURCE: GLEIF Global LEI Index (api.gleif.org)${pub ? ', golden copy published ' + esc(pub) : ''}, read live. Companies report their own parents; GLEIF and local registrars check them. Only legal entities appear, never private individuals. “Linked to” never means “did this.”</p>
+      </div>`;
+    } catch (err) { el.innerHTML = `<div class="fp-wrap"><p class="flag">Could not reach GLEIF right now (${esc(err.message)}).</p><a class="btn" href="#tree">Back to search</a></div>`; }
+  }
+  $('treePage').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-kids]'); if (!b) return;
+    const li = b.closest('li'); b.disabled = true; b.textContent = '…';
+    try {
+      const { list, total } = await kidsOf(b.dataset.kids, 100);
+      const home = null;
+      li.insertAdjacentHTML('beforeend', `<ul class="tkids">${list.map((k) => `<li>${treeLink(k, home)}${k.hasKids ? ' <button type="button" class="exp" data-kids="' + esc(k.lei) + '">▸ subsidiaries</button>' : ''}</li>`).join('')}${total > list.length ? `<li class="muted-s">+${num(total - list.length)} more in GLEIF</li>` : ''}</ul>`);
+      b.remove();
+    } catch (err) { b.textContent = 'retry'; b.disabled = false; }
+  });
+
   const PLACES = { harlan: { center: [-83.25, 36.87], zoom: 10 }, flint: { center: [-83.69, 43.01], zoom: 11 } };
   async function route() {
     const h = location.hash.replace(/^#/, '');
     const onMap = h.startsWith('map');
     const onFam = h.startsWith('family/');
-    document.body.classList.toggle('on-home', !onMap && !onFam);
+    const onTree = h === 'tree' || h.startsWith('tree/');
+    document.body.classList.toggle('on-home', !onMap && !onFam && !onTree);
     document.body.classList.toggle('on-family', onFam);
+    document.body.classList.toggle('on-tree', onTree);
+    if (onTree) {
+      window.scrollTo(0, 0);
+      const parts = h.split('/');
+      if (parts[1] === 'q') { renderTreeSearch(decodeURIComponent(parts[2] || ''), parts[3] === 'us'); return; }
+      if (parts[1] && /^[A-Z0-9]{20}$/i.test(parts[1])) { await ready; renderTree(parts[1].toUpperCase()); return; }
+      renderTreeSearch('', false); return;
+    }
     if (onFam) { window.scrollTo(0, 0); await ready; renderFamilyPage(decodeURIComponent(h.split('/')[1]), { asOf: 'all' }); return; }
     if (!onMap) { window.scrollTo(0, 0); return; }
     requestAnimationFrame(() => map.resize());
