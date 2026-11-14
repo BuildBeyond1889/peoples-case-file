@@ -220,11 +220,47 @@ def msha(areas):
         f['source'] = 'MSHA Controller/Operator History'
         f['as_of'] = TODAY
     log(f'MSHA: {len(feats)} mapped mines, {len(families)} controller families')
-    return feats, sorted(families.values(), key=lambda f: -len(f['mines']))
+    fams = sorted(families.values(), key=lambda f: -len(f['mines']))
+    multi_op = sum(1 for x in feats if len({h['operator_id'] for h in x['properties']['history']}) > 1)
+    recent = sum(1 for x in feats if any((h['op_start'] or '') >= str(int(TODAY[:4]) - 5) for h in x['properties']['history'][1:]))
+    active = sum(1 for x in feats if 'Active' in x['properties']['kind'])
+    persons = sum(1 for f in fams if (f['controller_type'] or '').lower().startswith('p'))
+    summary = {
+        'pilot': 'Harlan County, KY (coal)', 'mapped_mines': len(feats), 'active_mines': active,
+        'mines_with_more_than_one_operator': multi_op, 'mines_with_operator_change_last_5_years': recent,
+        'controller_families': len(fams), 'controllers_that_are_people': persons,
+        'top_controllers_by_mines': [{'controller': f['controller'], 'id': f['controller_id'], 'type': f['controller_type'],
+                                      'mines': len(f['mines']), 'operators': len(f['operators'])} for f in fams[:15]],
+    }
+    write_json('summary.json', summary)
+    log('SUMMARY', json.dumps(summary, indent=1))
+    return feats, fams
 
 
 # ---------------------------------------------------------------- ECHO ----
 ECHO = 'https://echodata.epa.gov/echo/echo_rest_services'
+
+
+_ECHO_COLS = None
+
+
+def echo_columns():
+    """Look up the column ids for the fields we need from ECHO's metadata service."""
+    global _ECHO_COLS
+    if _ECHO_COLS is not None:
+        return _ECHO_COLS
+    want = {'FacName', 'FacLat', 'FacLong', 'RegistryID', 'FacQtrsWithNC', 'FacTotalPenalties', 'FacSICDescs', 'FacNAICSCodes'}
+    try:
+        url, body = fetch(ECHO + '.metadata', {'output': 'JSON'})
+        archive('echo', 'metadata.json', url, body)
+        cols = json.loads(body).get('Results', {}).get('ResultColumns', [])
+        ids = [str(c.get('ColumnID')) for c in cols if c.get('ObjectName') in want]
+        log('ECHO metadata columns matched:', [c.get('ObjectName') for c in cols if c.get('ObjectName') in want])
+        _ECHO_COLS = ','.join(ids)
+    except Exception as e:
+        log('ECHO metadata failed:', repr(e))
+        _ECHO_COLS = ''
+    return _ECHO_COLS
 
 
 def echo_facilities(area_id, bbox):
@@ -238,7 +274,10 @@ def echo_facilities(area_id, bbox):
         return []
     feats, page = [], 1
     while page <= 50:
-        url, body = fetch(ECHO + '.get_qid', {'output': 'JSON', 'qid': qid, 'pageno': page})
+        params = {'output': 'JSON', 'qid': qid, 'pageno': page}
+        if echo_columns():
+            params['qcolumns'] = echo_columns()
+        url, body = fetch(ECHO + '.get_qid', params)
         archive('echo', f'{area_id}-qid-p{page}.json', url, body)
         facs = json.loads(body).get('Results', {}).get('Facilities', []) or []
         if page == 1 and facs:
@@ -251,7 +290,7 @@ def echo_facilities(area_id, bbox):
             frs = f.get('RegistryID')
             feats.append({'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': [lon, lat]}, 'properties': {
                 'name': f.get('FacName'),
-                'kind': 'EPA-regulated facility',
+                'kind': f.get('FacSICDescs') or 'EPA-regulated facility',
                 # FacQtrsWithNC = number of quarters in non-compliance (recent 3 years), NOT a violation count.
                 'qtrs_noncompliance': _int(f.get('FacQtrsWithNC')),
                 'penalties': _num(f.get('FacTotalPenalties')),

@@ -32,7 +32,16 @@ jobs:
           echo '## Collector report' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat site/data/index.json >> "$GITHUB_STEP_SUMMARY" || echo 'no index.json' >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          cat site/data/summary.json >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep built data for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-data
+          path: site/data
+          retention-days: 30
       - name: Archive raw snapshots to a monthly release (never in git)
         if: always()
         env:
