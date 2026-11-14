@@ -23,13 +23,17 @@
       version: 8,
       sources: {
         base: {
-          type: 'raster', tileSize: 256,
-          // Free CARTO dark basemap (OSM data), light use only. Swap for self-hosted PMTiles before launch.
-          tiles: ['a', 'b', 'c', 'd'].map((s) => `https://${s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png`),
-          attribution: '© OpenStreetMap contributors © CARTO',
+          type: 'raster', tileSize: 256, maxzoom: 16,
+          // Esri World Dark Gray Canvas: no key needed, attribution required, light use only. Swap for self-hosted PMTiles before launch.
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'],
+          attribution: 'Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors',
+        },
+        labels: {
+          type: 'raster', tileSize: 256, maxzoom: 16,
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}'],
         },
       },
-      layers: [{ id: 'base', type: 'raster', source: 'base' }],
+      layers: [{ id: 'base', type: 'raster', source: 'base' }, { id: 'labels', type: 'raster', source: 'labels' }],
     },
     center: [-83.25, 36.87], // Harlan County, KY pilot
     zoom: 10,

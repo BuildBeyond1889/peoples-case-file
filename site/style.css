@@ -20,7 +20,7 @@ a{color:#9CC6D8}a:hover{color:#C8E1EC}
 .wrap{flex:1;display:flex;flex-wrap:wrap;gap:14px;padding:14px max(18px,env(safe-area-inset-left));min-height:0}
 #map{flex:999 1 520px;min-height:62vh;border-radius:16px;overflow:hidden;border:1px solid var(--line)}
 .panel{flex:1 1 320px;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;overflow:auto;max-height:calc(100vh - 120px)}
-#layers{flex-basis:220px;max-width:260px;padding:16px}
+#layers{flex-basis:260px;max-width:300px;padding:16px}
 .panel h2{margin:0 0 10px;font-size:14px;font-weight:600}
 .panel h1{font-size:40px;line-height:1.05;margin:8px 0 10px}
 .panel label{display:flex;gap:10px;align-items:center;min-height:40px;font-size:13.5px}
