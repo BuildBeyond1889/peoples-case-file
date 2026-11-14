@@ -2,7 +2,7 @@
 """Diagnostic probe: SEC EDGAR full-text search (Exhibit 95 mine IDs, Exhibit 21 subsidiaries) and GLEIF parents."""
 import json, re, sys, time, urllib.parse, urllib.request
 
-UA = 'PeoplesCaseFile/0.2 (public-records research; https://github.com/BuildBeyond1889/peoples-case-file)'
+UA = 'PeoplesCaseFile BuildBeyond1889@users.noreply.github.com'
 PAGES = 'https://buildbeyond1889.github.io/peoples-case-file/'
 
 
@@ -38,7 +38,7 @@ s, b = get(PAGES + 'data/mines.geojson')
 mines = json.loads(b)['features'] if b else []
 print('mines', len(mines), 'sample props', list(mines[0]['properties'].keys())[:40] if mines else None)
 recent = [m['properties'] for m in mines if (m['properties'].get('viol') or {}).get('since2000')]
-recent = sorted(recent, key=lambda p: -((p.get('viol') or {}).get('total') or 0))[:8]
+recent = sorted(recent, key=lambda p: -((p.get('viol') or {}).get('total') or 0))[:3]
 
 # 2. Exhibit 95 lookups by mine ID, two formats
 print('\n== Exhibit 95 by mine ID ==')
@@ -73,7 +73,7 @@ for n in ['Lone Mountain Processing', 'Blackjewel', 'Inmet Mining', 'Panther Min
 
 # 5. GLEIF
 print('\n== GLEIF ==')
-for n in ['Javelin Global Commodities', 'Alpha Metallurgical Resources', 'Arch Resources', 'Blackjewel']:
+for n in ['Javelin Global Commodities (UK)', 'Bluegrass Natural Resources', 'Alpha Metallurgical Resources']:
     s, b = get('https://api.gleif.org/api/v1/fuzzycompletions', {'field': 'entity.legalName', 'q': n})
     print(n, s, b[:400])
     s, b = get('https://api.gleif.org/api/v1/lei-records', {'filter[fulltext]': n, 'page[size]': 3})
@@ -82,5 +82,10 @@ for n in ['Javelin Global Commodities', 'Alpha Metallurgical Resources', 'Arch R
             a = d['attributes']
             print('  ', d['id'], a['entity']['legalName']['name'], a['entity']['legalAddress'].get('country'),
                   a['entity'].get('status'), list(d.get('relationships', {}).keys()))
-            s2, b2 = get(f'https://api.gleif.org/api/v1/lei-records/{d["id"]}/ultimate-parent')
-            print('     ultimate-parent', s2, b2[:200])
+            for rel in ('direct-parent', 'ultimate-parent', 'direct-parent-reporting-exception', 'ultimate-parent-reporting-exception'):
+                s2, b2 = get(f'https://api.gleif.org/api/v1/lei-records/{d["id"]}/{rel}')
+                print('     ', rel, s2, b2[:300])
+
+print('\n== data.sec.gov ==')
+s, b = get('https://www.sec.gov/files/company_tickers.json'); print('tickers', s, len(b))
+s, b = get('https://data.sec.gov/submissions/CIK0001037676.json'); print('submissions', s, b[:200])
