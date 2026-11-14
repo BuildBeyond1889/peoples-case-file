@@ -34,20 +34,17 @@ def fts(q, **kw):
 
 # 1. Mine IDs from the live site
 s, b = get(PAGES + 'data/index.json')
-idx = json.loads(b)
-print('index layers', [l.get('file') or l.get('id') for l in idx.get('layers', [])][:10])
 s, b = get(PAGES + 'data/mines.geojson')
 mines = json.loads(b)['features'] if b else []
 print('mines', len(mines), 'sample props', list(mines[0]['properties'].keys())[:40] if mines else None)
-recent = [m['properties'] for m in mines if str(m['properties'].get('status', '')).lower().startswith('act')
-          or (m['properties'].get('viol') or {}).get('last5')]
+recent = [m['properties'] for m in mines if (m['properties'].get('viol') or {}).get('since2000')]
 recent = sorted(recent, key=lambda p: -((p.get('viol') or {}).get('total') or 0))[:8]
 
 # 2. Exhibit 95 lookups by mine ID, two formats
 print('\n== Exhibit 95 by mine ID ==')
 for p in recent:
-    mid = str(p.get('mine_id') or p.get('id'))
-    print(p.get('name'), mid, p.get('operator'), p.get('controller'))
+    mid = str((p.get('ids') or {}).get('msha_mine') or p.get('id'))
+    print(p.get('name'), mid, p.get('operator'), p.get('parent'), p.get('status'))
     fts(f'"{mid}"', forms='10-K')
     fts(f'"{mid[:2]}-{mid[2:]}"', forms='10-K')
 
