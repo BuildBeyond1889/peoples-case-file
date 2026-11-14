@@ -772,6 +772,7 @@ def sdwis():
             sample = ef(f"GEOGRAPHIC_AREA/STATE_SERVED/{a['state']}/rows/0:400/JSON", f'sdwis-geo-sample-{aid}.json')
             log(f"SDWIS {aid}: no rows for county; sample counties:", sorted({str(r.get('county_served')) for r in sample})[:40])
             log(f"SDWIS {aid}: sample cities:", sorted({str(r.get('city_served')) for r in sample if 'ARLAN' in str(r.get('city_served')).upper() or 'ARLAN' in str(r.get('county_served')).upper()}))
+        log(f"SDWIS {aid}: {len(areas)} area rows; activity/type mix:", sorted({(r.get('pws_activity_code'), r.get('pws_type_code')) for r in areas}))
         pwsids = sorted({r['pwsid'] for r in areas if r.get('pws_activity_code') == 'A' and r.get('pws_type_code') == 'CWS'})  # community systems (homes)
         systems = []
         for pid in pwsids:
