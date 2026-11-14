@@ -737,14 +737,25 @@ def tri(facilities):
             if echo:
                 echo['properties']['tri'] = info      # same FRS ID: official join, high confidence
             xy, note = None, None
+            def dms(v):
+                # some TRI rows store degrees-minutes-seconds packed as DDMMSS (e.g. 425439 = 42°54'39")
+                v = abs(float(v))
+                if v > 1000:
+                    d, rem = divmod(v, 10000)
+                    m, sec = divmod(rem, 100)
+                    return d + m / 60 + sec / 3600, True
+                return v, False
             try:
-                lo, la = float(lon), float(lat)
-                xy = [-abs(lo), la]
+                la, c1 = dms(lat)
+                lo, c2 = dms(lon)
+                xy = [-round(lo, 6), round(la, 6)]
+                if c1 or c2:
+                    note = 'TRI location was stored as degrees-minutes-seconds; converted'
             except (TypeError, ValueError):
                 pass
             b = a['box']
             if xy and not (b[0] <= xy[0] <= b[2] and b[1] <= xy[1] <= b[3]):
-                note = f'TRI location {lat}, {lon} is outside {a["label"]}; '
+                note = f'TRI location {lat}, {lon} is outside {a["label"]}; '  # noqa
                 xy = None
             if not xy and echo:
                 xy = echo['geometry']['coordinates']
