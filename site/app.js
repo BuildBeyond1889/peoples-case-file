@@ -391,7 +391,7 @@
         <div class="fp-title">
           <p class="eyebrow">CONTROLLER · ${esc((f.controller_type || 'unknown').toUpperCase())} · MSHA RECORDS</p>
           <h1 class="serif">${isPerson ? esc(f.controller) + ' <span class="muted-s" style="font-family:var(--sans);font-size:15px">(individual, as named in MSHA records)</span>' : esc(f.controller)}</h1>
-          <p class="lede2">${num(allMines.length)} mines pulled into one family from MSHA records · ${num(opList.length)} operating companies · ${esc(yr(M.first) || '?')}–${M.last ? esc(yr(M.last)) : 'now'}</p>
+          <p class="lede2">${num(allMines.length)} mine${allMines.length === 1 ? '' : 's'} pulled into one family from MSHA records · ${num(opList.length)} operating compan${opList.length === 1 ? 'y' : 'ies'} · ${esc(yr(M.first) || '?')}–${M.last ? esc(yr(M.last)) : 'now'}</p>
           <div class="fp-ids"><span>MSHA controller ${esc(f.controller_id)}</span>${opList.slice(0, 4).map((o) => o.id ? `<span class="pro">operator ${esc(o.id)}</span>` : '').join('')}<span>LEI · not linked yet</span><span>State registry · not linked yet</span></div>
         </div>
         <div class="btns"><button type="button" class="btn" data-fpmap="__all">Show on the map</button><button type="button" class="btn primary" data-letter="${esc(famLetter)}">Request MSHA records</button></div>
