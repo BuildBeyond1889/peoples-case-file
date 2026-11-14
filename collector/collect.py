@@ -874,10 +874,11 @@ def usaspending(name):
             loc = r.get('Recipient Location') or {}
             st = loc.get('state_code') if isinstance(loc, dict) else None
             same = norm_name(r.get('Recipient Name')) == norm_name(name)
-            if same and (st in REGION or r.get('Place of Performance State Code') in REGION):
+            if same:  # exact name after removing suffixes; big companies are often headquartered out of region
                 amt = r.get('Loan Value') if group == 'loans' else r.get('Award Amount')
                 kept.append({'id': r.get('Award ID'), 'recipient': r.get('Recipient Name'), 'amount': amt or 0,
                              'agency': r.get('Awarding Agency'), 'date': r.get('Start Date'), 'what': (r.get('Description') or '')[:140],
+                             'state': st, 'in_region': st in REGION or r.get('Place of Performance State Code') in REGION,
                              'url': f"https://www.usaspending.gov/award/{r.get('generated_internal_id')}" if r.get('generated_internal_id') else None})
             else:
                 similar += 1
@@ -942,8 +943,8 @@ def money_and_courts(families, max_controllers=40):
         names.append(f['controller'])
         names += [o['name'] for o in f.get('operators', [])[:4] if o.get('name')]
     names = list(dict.fromkeys(n for n in names if n and norm_name(n)))
-    out = {'as_of': TODAY, 'rules': 'Matched by name. Counted only when the name matches after removing suffixes (LLC, Inc...) and the '
-           'recipient is in KY, VA, WV or TN. Similar names are listed as not counted.',
+    out = {'as_of': TODAY, 'rules': 'Matched by name. Counted only when the name matches exactly after removing suffixes (LLC, Inc...). '
+           'Similar names are listed as not counted. Each award shows the recipient state.',
            'fec_key': 'personal' if fec_key != 'DEMO_KEY' else 'demo', 'courts': 'on' if cl_token else 'needs_token', 'by_name': {}}
     fec_budget = 400 if fec_key != 'DEMO_KEY' else 12
     for n in names:
