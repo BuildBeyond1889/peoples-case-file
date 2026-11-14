@@ -915,12 +915,26 @@ def courtlistener(name, token):
     q = urllib.parse.quote(f'"{name}"')
     req = urllib.request.Request(f'https://www.courtlistener.com/api/rest/v4/search/?q={q}&type=r&order_by=dateFiled%20desc',
                                  headers={'User-Agent': UA, 'Authorization': f'Token {token}'})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = json.loads(r.read())
-        time.sleep(1)
-    except Exception as e:
-        log('CourtListener failed for', name, repr(e))
+    data = None
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                data = json.loads(r.read())
+            time.sleep(4)          # stay well under CourtListener's search rate limit
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 429:      # rate limited: wait (honour Retry-After) and try again
+                wait = int(e.headers.get('Retry-After') or 0) or 30 * (attempt + 1)
+                log(f'CourtListener rate limit; waiting {wait}s ({name})')
+                time.sleep(min(wait, 180))
+                continue
+            log('CourtListener failed for', name, repr(e))
+            return None
+        except Exception as e:
+            log('CourtListener failed for', name, repr(e))
+            return None
+    if data is None:
+        log('CourtListener gave up for', name)
         return None
     cases = []
     for d in data.get('results', [])[:25]:
