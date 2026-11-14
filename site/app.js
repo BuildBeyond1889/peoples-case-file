@@ -11,6 +11,7 @@
   const MSHA_LOOKUP = 'https://www.msha.gov/mine-data-retrieval-system';
 
   const LAYERS = [
+    { id: 'ej', name: 'Open EJ Score (by neighborhood)', tag: 'Open formula', on: false, poly: true },
     { id: 'kypermits', name: 'Kentucky mine permit areas', tag: 'KY DMP', on: false, poly: true },
     { id: 'mines', name: 'Mines + who controls them', tag: 'MSHA', on: true },
     { id: 'facilities', name: 'EPA-regulated facilities', tag: 'ECHO', on: true },
@@ -59,6 +60,7 @@
   let registry = null;    // registry.json: Kentucky Secretary of State records by normalized name
   let pendingData = null; // comments.json: permit actions pending with the state (public-comment alerts)
   let archiveIdx = null;  // archive.json: today's archived originals with SHA-256 (for evidence packs)
+  let ejData = null;      // ej.geojson: block groups with percentiles; the score is computed here from the user's weights
   const intro = $('detailBody').innerHTML;
 
   async function loadData() {
@@ -88,6 +90,14 @@
       if (!L.count) L.on = false;
       map.addSource(L.id, { type: 'geojson', data });
       const isMine = L.id === 'mines';
+      if (L.id === 'ej') {
+        ejData = data; ejScore();
+        map.addLayer({ id: 'ej', type: 'fill', source: 'ej', layout: { visibility: L.on ? 'visible' : 'none' },
+          paint: { 'fill-color': ['case', ['==', ['get', 'score'], null], '#14181E', ['step', ['get', 'score'], '#1E2630', 20, '#33505E', 40, '#7E8A6A', 60, '#D9963F', 80, '#EE7D67']], 'fill-opacity': 0.55 } });
+        map.addLayer({ id: 'ej-line', type: 'line', source: 'ej', layout: { visibility: L.on ? 'visible' : 'none' }, paint: { 'line-color': '#0A0C0F', 'line-width': 0.7, 'line-opacity': 0.8 } });
+        map.on('click', 'ej', (e) => { if (map.queryRenderedFeatures(e.point).some((f) => f.layer.type === 'circle')) return; showEJ(e.features[0].properties.geoid); });
+        continue;
+      }
       if (L.poly) {
         map.addLayer({ id: L.id, type: 'fill', source: L.id, layout: { visibility: L.on ? 'visible' : 'none' },
           paint: { 'fill-color': ['case', ['==', ['get', 'flag'], 'ACT'], '#E3A44E', '#86B6CC'], 'fill-opacity': 0.08 } });
@@ -139,6 +149,7 @@
     $('layerList').addEventListener('change', (e) => {
       const id = e.target.dataset.l; if (!id) return;
       map.setLayoutProperty(id, 'visibility', e.target.checked ? 'visible' : 'none');
+      if (id === 'ej' && e.target.checked) showEJPanel();
       if (map.getLayer(id + '-line')) map.setLayoutProperty(id + '-line', 'visibility', e.target.checked ? 'visible' : 'none');
     });
   }
@@ -744,6 +755,90 @@
     </ul><p class="note">These search by name, so a result may be a different company with a similar name. Match addresses, officers or ID numbers before relying on one.</p></details>`;
   }
 
+  // ---- Open EJ Score: our own open formula (NOT EPA's EJScreen). Score = Σ(weight × percentile) ÷ Σ weights,
+  // over the ingredients available for that neighborhood. Weights live in this browser only.
+  const EJ_ING = [
+    { k: 'sites', name: 'Problem sites nearby', src: 'EPA sites with silence flags (high counts double), inside or within a mile', c: '#EE7D67' },
+    { k: 'exceed', name: 'Discharges over permit limits', src: 'EPA discharge reports over limits, last 3 years', c: '#E3A44E' },
+    { k: 'tri_lbs', name: 'Toxic releases (pounds)', src: 'EPA TRI, latest year, factories reporting in the last 3 years', c: '#C39BD3' },
+    { k: 'mine_cit', name: 'Mine safety citations', src: 'MSHA citations at mines, last 5 years', c: '#D9963F' },
+    { k: 'water', name: 'Drinking-water violations', src: 'Not mapped yet: federal records have no service-area boundaries', c: '#4FC3D3' },
+    { k: 'vuln', name: 'Vulnerability (income, age)', src: 'Census ACS 5-yr: below 2× poverty, under 5, over 64 (vs. the whole state)', c: '#86B6CC' },
+  ];
+  const EJ_PRESETS = { Balanced: { sites: 3, exceed: 3, tri_lbs: 2, mine_cit: 2, water: 3, vuln: 3 }, 'Water first': { sites: 1, exceed: 5, tri_lbs: 1, mine_cit: 0, water: 5, vuln: 2 }, 'Mining first': { sites: 2, exceed: 2, tri_lbs: 0, mine_cit: 5, water: 1, vuln: 2 } };
+  let ejW = (() => { try { return JSON.parse(localStorage.getItem('pcf.ejw')) || { ...EJ_PRESETS.Balanced }; } catch (e) { return { ...EJ_PRESETS.Balanced }; } })();
+  let ejSel = null;
+  function ejOne(p) {
+    const pct = typeof p.pct === 'string' ? JSON.parse(p.pct) : p.pct || {};
+    let sw = 0, s = 0; const parts = [];
+    for (const g of EJ_ING) {
+      const v = pct[g.k], w = ejW[g.k] || 0;
+      if (v == null) { parts.push({ ...g, v: null, w, contrib: 0 }); continue; }
+      sw += w; s += w * v; parts.push({ ...g, v, w });
+    }
+    for (const x of parts) x.contrib = sw && x.v != null ? (x.w * x.v) / sw : 0;
+    return { score: sw ? Math.round(s / sw) : null, parts };
+  }
+  function ejScore() {
+    if (!ejData) return;
+    for (const f of ejData.features) f.properties.score = ejOne(f.properties).score;
+    if (map.getSource && map.getSource('ej')) map.getSource('ej').setData(ejData);
+  }
+  function ejPanelHtml() {
+    const preset = Object.entries(EJ_PRESETS).find(([, v]) => EJ_ING.every((g) => (v[g.k] || 0) === (ejW[g.k] || 0)))?.[0];
+    return `<div class="ejpanel"><div class="ejrow"><b>What counts, and how much</b><button type="button" class="linkbtn" data-ejpreset="Balanced">Reset</button></div>
+      <div class="ejpresets">${Object.keys(EJ_PRESETS).map((k) => `<button type="button" class="pbadge ${k === preset ? 'open' : ''}" data-ejpreset="${esc(k)}">${esc(k)}</button>`).join('')}</div>
+      ${EJ_ING.map((g) => `<div class="ejw"><label for="ejw-${g.k}"><span>${esc(g.name)}</span><b>${ejW[g.k] || 0}</b></label>
+        <input type="range" id="ejw-${g.k}" min="0" max="5" step="1" value="${ejW[g.k] || 0}" data-ejw="${g.k}"><span class="when">${esc(g.src)}</span></div>`).join('')}
+      <p class="mono-s">score = Σ (weight × percentile) ÷ Σ weights, over what’s available for that area</p>
+      <div class="ejlegend">${[['#1E2630', '0–20'], ['#33505E', '20–40'], ['#7E8A6A', '40–60'], ['#D9963F', '60–80'], ['#EE7D67', '80–100']].map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join('')}</div></div>`;
+  }
+  function ejNote() {
+    return `<div class="ejnote"><p class="eyebrow">READ THIS FIRST</p><ul>
+      <li>It counts records near people, not exposure or illness. Same place does not mean cause.</li>
+      <li>Census numbers are estimates with margins of error; small areas swing.</li>
+      <li>Missing data is shown as missing, never as zero.</li>
+      <li>Our own open formula. Not EPA’s EJScreen.</li></ul></div>`;
+  }
+  function showEJPanel() {
+    show(`<p class="eyebrow">OPEN EJ SCORE · BY CENSUS BLOCK GROUP</p><h2 class="card-title">Where the burden piles up</h2>
+      <p class="muted-s">Pollution and enforcement records plus Census conditions, one score per neighborhood. Drag a weight and the map redraws. Click any area to see how its score is built.</p>
+      ${ejPanelHtml()}${ejNote()}`);
+  }
+  function showEJ(geoid) {
+    const f = ejData?.features.find((x) => x.properties.geoid === geoid); if (!f) return;
+    ejSel = geoid;
+    const p = f.properties, r = ejOne(p);
+    const peers = ejData.features.filter((x) => x.properties.area === p.area && x.properties.score != null);
+    const below = peers.filter((x) => x.properties.score < r.score).length;
+    const raw = p.raw || {};
+    const rawTxt = { sites: `${num(p.n_sites || 0)} flagged site${p.n_sites === 1 ? '' : 's'}`, exceed: `${num(raw.exceed || 0)} readings over limit`, tri_lbs: `${num(raw.tri_lbs || 0)} lbs`, mine_cit: `${num(raw.mine_cit || 0)} citations (weighted)`, water: 'not mapped yet',
+      vuln: p.low_income_pct != null ? `${p.low_income_pct}% low income · ${p.age_pct}% under 5 or over 64` : 'no Census estimate' };
+    show(`<p class="eyebrow">OPEN EJ SCORE · ${esc(p.county)}</p>
+      <h2 class="card-title">${esc(p.name)}</h2>
+      <div class="ejbig"><span>${r.score == null ? '—' : r.score}</span><small>/ 100</small></div>
+      <p class="muted-s">${r.score == null ? 'Not enough data to score this area.' : `Higher than ${Math.round((below / Math.max(1, peers.length)) * 100)}% of block groups in ${esc(p.county)} with these weights.`} About ${num(p.pop)} people (Census estimate).</p>
+      <h3 class="fp-sub">How this score is built</h3>
+      <div class="ejparts">${r.parts.map((x) => `<div class="ejpart"><span>${esc(x.name)}${x.v == null ? ' <i class="muted-s">(not available)</i>' : x.w === 0 ? ' <i class="muted-s">(weight 0)</i>' : ''}</span>
+        <span class="ejbar"><i style="width:${Math.max(x.contrib ? 1 : 0, Math.round(x.contrib))}%;background:${x.c}"></i></span>
+        <span class="mono-s">${x.v == null ? '—' : x.v + 'th pct'} · ${esc(rawTxt[x.k])}</span></div>`).join('')}</div>
+      <div class="btns"><button type="button" class="btn" data-ejadjust="1">Adjust weights</button>${packBtn('ej', { ...p, score: r.score, weights: { ...ejW } }, p.name + ' · ' + p.county + ' (Open EJ Score)')}</div>
+      ${ejNote()}
+      <p class="src">SOURCES: US Census ACS ${esc(p.acs_year)} 5-year estimates (<a href="${esc(p.census_url)}" target="_blank" rel="noopener">Census profile</a>) and TIGER block groups; EPA ECHO, ICIS-NPDES and TRI; MSHA. Records count fully inside the area and half within a mile of it; record percentiles are within the county, Census percentiles within the state. Pulled ${esc(p.as_of)}.</p>`);
+  }
+  document.addEventListener('input', (e) => {
+    const k = e.target.dataset?.ejw; if (!k) return;
+    ejW = { ...ejW, [k]: Number(e.target.value) };
+    try { localStorage.setItem('pcf.ejw', JSON.stringify(ejW)); } catch (err) {}
+    e.target.closest('.ejw').querySelector('b').textContent = e.target.value;
+    ejScore();
+  });
+  document.addEventListener('click', (e) => {
+    const pr = e.target.closest('[data-ejpreset]');
+    if (pr) { ejW = { ...EJ_PRESETS[pr.dataset.ejpreset] }; try { localStorage.setItem('pcf.ejw', JSON.stringify(ejW)); } catch (err) {} ejScore(); ejSel ? showEJ(ejSel) : showEJPanel(); return; }
+    if (e.target.closest('[data-ejadjust]')) showEJPanel();
+  });
+
   // ---- Evidence packs: a zip of exactly what's shown, the records behind it, and how to verify each one.
   const packs = {}; let packSeq = 0;
   function packBtn(kind, p, title) {
@@ -783,7 +878,8 @@
     const pick = (fn) => files.filter(fn);
     const permitIds = new Set([...(rec.permits || []), ...(rec.epa || []).flatMap((e) => e.permits || [])].map((x) => x.id));
     const want = [];
-    if (kind === 'mine' || kind === 'family') want.push(...pick((f) => f.source === 'msha'));
+    if (kind === 'mine' || kind === 'family' || kind === 'ej') want.push(...pick((f) => f.source === 'msha'));
+    if (kind === 'ej') want.push(...pick((f) => ['census-tiger', 'echo', 'epa-npdes', 'epa-tri-basic'].includes(f.source)));
     if (kind === 'facility' || kind === 'mine' || kind === 'family') {
       want.push(...pick((f) => f.source === 'epa-npdes'));
       want.push(...pick((f) => f.source === 'epa-effluent' && [...permitIds].some((id) => f.file === `effluent-${id}.csv`)));

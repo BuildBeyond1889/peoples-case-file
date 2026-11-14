@@ -973,9 +973,9 @@ def rank_flags(facilities):
 
 # --------------------------------------------- Envirofacts: TRI + SDWIS ----
 EF = 'https://data.epa.gov/efservice/'
-EF_AREAS = {'harlan-ky': {'state': 'KY', 'county': 'Harlan', 'center': [-83.32, 36.86], 'label': 'Harlan County, KY', 'box': [-83.65, 36.55, -82.85, 37.15],
+EF_AREAS = {'harlan-ky': {'state': 'KY', 'fips': ('21', '095'), 'county': 'Harlan', 'center': [-83.32, 36.86], 'label': 'Harlan County, KY', 'box': [-83.65, 36.55, -82.85, 37.15],
                           'towns': ['HARLAN', 'CUMBERLAND', 'EVARTS', 'BENHAM', 'LYNCH', 'LOYALL', 'WALLINS CREEK', 'BAXTER', 'TOTZ', 'PUTNEY']},
-            'flint-mi': {'state': 'MI', 'county': 'Genesee', 'center': [-83.69, 43.02], 'label': 'Genesee County, MI (Flint)', 'box': [-84.05, 42.75, -83.40, 43.25]}}
+            'flint-mi': {'state': 'MI', 'fips': ('26', '049'), 'county': 'Genesee', 'center': [-83.69, 43.02], 'label': 'Genesee County, MI (Flint)', 'box': [-84.05, 42.75, -83.40, 43.25]}}
 
 
 def ef(path, name):
@@ -1778,6 +1778,149 @@ def comments(mines, facilities):
     return out
 
 
+# ------------------------------------------------------------------ Open EJ Score ----
+# Our own open formula, NOT EPA's EJScreen. Per Census block group:
+#   records nearby (our layers; percentile within the county, since that is where we collect them)
+#   + Census conditions (ACS 5-year; percentile within the state).
+# The site computes the score in the browser from these percentiles and the user's weights.
+TIGER_BG = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/tigerWMS_ACS2024/MapServer/10/query'
+ACS_SF = 'https://www2.census.gov/programs-surveys/acs/summary_file/{yr}/table-based-SF/data/5YRData/acsdt5y{yr}-{table}.dat'
+MILE = 1609.34
+
+
+def acs_block_groups(states, yr=2024):
+    """Stream the ACS table-based summary files (no key needed) and keep block groups in the given state FIPS codes."""
+    keep = tuple('1500000US' + st for st in states)
+    out = {}
+    for table in ('c17002', 'b01001'):
+        url = ACS_SF.format(yr=yr, table=table)
+        req = urllib.request.Request(url, headers={'User-Agent': UA})
+        with urllib.request.urlopen(req, timeout=900) as r:
+            head = r.readline().decode('latin-1').strip().split('|')
+            ix = {h: i for i, h in enumerate(head)}
+            n = 0
+            for raw in r:
+                if not raw.startswith(b'1500000US'):
+                    continue
+                line = raw.decode('latin-1').rstrip('\n').split('|')
+                gid = line[0]
+                if not gid.startswith(keep):
+                    continue
+                n += 1
+                v = lambda c: _num(line[ix[c]]) or 0
+                d = out.setdefault(gid[9:], {})
+                if table == 'c17002':
+                    d['pov_universe'] = v('C17002_E001')
+                    d['low_income'] = sum(v(f'C17002_E00{k}') for k in range(2, 8))
+                else:
+                    d['pop'] = v('B01001_E001')
+                    d['under5'] = v('B01001_E003') + v('B01001_E027')
+                    d['over64'] = sum(v(f'B01001_E0{k:02d}') for k in list(range(20, 26)) + list(range(44, 50)))
+        log(f'ACS {yr} {table}: {n} block groups kept')
+    return out
+
+
+def _pctile(values):
+    """Percentile rank 0-100 (share of areas with a lower value), ties share the same rank."""
+    xs = sorted(values)
+    import bisect
+    return lambda v: round(100 * bisect.bisect_left(xs, v) / max(1, len(xs)))
+
+
+def _near_weight(pt, geom, cen):
+    if _in_geom(pt[0], pt[1], geom):
+        return 1.0
+    ring = (geom['coordinates'][0][0] if geom['type'] == 'MultiPolygon' else geom['coordinates'][0])
+    d = min(meters(pt, q) for q in ring[::max(1, len(ring) // 60)])
+    return 0.5 if d <= MILE else 0.0
+
+
+def ej_score(mines, facilities, tri_feats, yr=2024):
+    acs = acs_block_groups(sorted({a['fips'][0] for a in EF_AREAS.values()}), yr)
+    # state-wide vulnerability percentiles
+    by_state = {}
+    for gid, d in acs.items():
+        if (d.get('pop') or 0) <= 0 or (d.get('pov_universe') or 0) <= 0:
+            continue
+        d['low_income_pct'] = d['low_income'] / d['pov_universe']
+        d['age_pct'] = (d['under5'] + d['over64']) / d['pop']
+        by_state.setdefault(gid[:2], []).append(d)
+    for st, ds in by_state.items():
+        pl = _pctile([x['low_income_pct'] for x in ds])
+        pa = _pctile([x['age_pct'] for x in ds])
+        for x in ds:
+            x['p_low_income'] = pl(x['low_income_pct'])
+            x['p_age'] = pa(x['age_pct'])
+            x['vuln'] = (x['low_income_pct'] + x['age_pct']) / 2
+        pv = _pctile([x['vuln'] for x in ds])
+        for x in ds:
+            x['p_vuln'] = pv(x['vuln'])
+    feats = []
+    cut3 = int(TODAY[:4]) - 3
+    for aid, a in EF_AREAS.items():
+        st, co = a['fips']
+        url, body = fetch(TIGER_BG, {'where': f"STATE='{st}' AND COUNTY='{co}'", 'outFields': 'GEOID,TRACT,BLKGRP,AREALAND',
+                                    'returnGeometry': 'true', 'outSR': 4326, 'geometryPrecision': 5, 'maxAllowableOffset': 0.0004, 'f': 'geojson'}, timeout=300)
+        archive('census-tiger', f'block-groups-{st}{co}.geojson', url, body)
+        bgs = json.loads(body).get('features', [])
+        rows = []
+        for bg in bgs:
+            g = bg['geometry']
+            ring = g['coordinates'][0][0] if g['type'] == 'MultiPolygon' else g['coordinates'][0]
+            cen = [sum(p[0] for p in ring) / len(ring), sum(p[1] for p in ring) / len(ring)]
+            raw = {'sites': 0.0, 'exceed': 0.0, 'tri_lbs': 0.0, 'mine_cit': 0.0}
+            n_sites = n_mines = 0
+            for f in facilities:
+                fp = f['properties']
+                if not fp.get('flag_level') and not any((pm.get('exceed') or {}).get('exceedances') for pm in fp.get('permits', []) or []):
+                    continue
+                w = _near_weight(f['geometry']['coordinates'], g, cen)
+                if not w:
+                    continue
+                if fp.get('flag_level'):
+                    raw['sites'] += w * (2 if fp['flag_level'] == 2 else 1)
+                    n_sites += 1
+                raw['exceed'] += w * sum((pm.get('exceed') or {}).get('exceedances') or 0 for pm in fp.get('permits', []) or [])
+            for t in tri_feats:
+                r = t['properties'].get('releases') or {}
+                if not r or (r.get('latest_year') or 0) < cut3:
+                    continue
+                w = _near_weight(t['geometry']['coordinates'], g, cen)
+                raw['tri_lbs'] += w * (r.get('latest_total') or 0)
+            for m in mines:
+                v = (m['properties'].get('viol') or {}).get('last5') or 0
+                if not v:
+                    continue
+                w = _near_weight(m['geometry']['coordinates'], g, cen)
+                if w:
+                    raw['mine_cit'] += w * v
+                    n_mines += 1
+            gid = bg['properties']['GEOID']
+            d = acs.get(gid, {})
+            rows.append((bg, gid, raw, d, n_sites, n_mines))
+        na = [k for k in ('sites', 'exceed', 'tri_lbs', 'mine_cit') if not any(r[2][k] for r in rows)]
+        pct = {k: _pctile([r[2][k] for r in rows]) for k in ('sites', 'exceed', 'tri_lbs', 'mine_cit')}
+        for bg, gid, raw, d, n_sites, n_mines in rows:
+            pr = bg['properties']
+            props = {
+                'geoid': gid, 'area': aid, 'county': a['label'],
+                'name': f"Block group {pr.get('BLKGRP')}, tract {str(pr.get('TRACT'))[:4]}.{str(pr.get('TRACT'))[4:]}",
+                'pop': int(d.get('pop') or 0), 'low_income_pct': round(100 * d['low_income_pct'], 1) if 'low_income_pct' in d else None,
+                'age_pct': round(100 * d['age_pct'], 1) if 'age_pct' in d else None,
+                'raw': {k: round(v, 1) for k, v in raw.items()}, 'n_sites': n_sites, 'n_mines': n_mines,
+                'pct': {**{k: (None if k in na else pct[k](raw[k])) for k in raw}, 'water': None,
+                        'vuln': d.get('p_vuln'), 'low_income': d.get('p_low_income'), 'age': d.get('p_age')},
+                'na': na + ['water'] + ([] if 'p_vuln' in d else ['vuln']),
+                'acs_year': f'{yr - 4}-{yr}', 'as_of': TODAY,
+                'census_url': f'https://data.census.gov/profile?g=1500000US{gid}'}
+            feats.append({'type': 'Feature', 'geometry': bg['geometry'], 'properties': props})
+        log(f'EJ {aid}: {len(rows)} block groups; not available here: {na or "none"}')
+    return {'type': 'FeatureCollection', 'features': feats,
+            'meta': {'name': 'Open EJ Score', 'not': "EPA's EJScreen",
+                     'rules': 'Records count fully inside a block group and half within a mile of it. Record percentiles are within the county '
+                              '(where we collect records); Census percentiles are within the state. Census figures are ACS 5-year estimates with margins of error.'}}
+
+
 RELEASE_BASE = 'https://github.com/BuildBeyond1889/peoples-case-file/releases'
 
 
@@ -1909,6 +2052,12 @@ def main():
     report['flag_codes'] = codes
     report['expired_examples'] = [f['properties']['name'] for f in facilities if any(fl['code'] == 'expired_permit' for fl in f['properties'].get('flags', []))][:10]
 
+    try:
+        ej = ej_score(feats or [], facilities or [], tri_feats or [])
+        layers['ej'] = write_json('ej.geojson', ej)
+        report['ej_block_groups'] = len(ej['features'])
+    except Exception as e:
+        log('EJ score failed:', repr(e))
     try:
         ai = archive_index()
         write_json('archive.json', ai)
