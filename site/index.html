@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body class="on-home">
 <header class="top">
@@ -43,12 +43,12 @@
   <div class="ways">
     <a class="way" href="#map/harlan"><span class="eyebrow">01</span><b>Start from a place</b><span>Your town, a creek, a road. See every mine and permitted site around it, and who runs them.</span></a>
     <a class="way" href="#map/harlan"><span class="eyebrow">02</span><b>Start from a company</b><span>Search a mine operator or controller. Open its family: every mine, every citation, every penalty.</span></a>
-    <a class="way hot" href="#map/flags"><span class="eyebrow">03</span><b>Start from the silence</b><span>Sites with serious violations and little or no response from regulators.</span></a>
+    <a class="way hot" href="#map/flags"><span class="eyebrow">03</span><b>Start from the silence</b><span>Sites with serious violations and little or no response from regulators, with a records request ready to send.</span></a>
   </div>
   <h2 class="serif sect">Pilot areas</h2>
   <div class="cases">
     <a class="case coral" href="#map/harlan"><span class="eyebrow">HARLAN COUNTY, KY · COAL</span><b>Who ran the mines, and what it cost</b><span id="caseHarlan">Mines, controllers, safety citations and linked EPA water permits.</span></a>
-    <a class="case steel" href="#map/flint"><span class="eyebrow">FLINT, MI</span><b>Permitted sites around Flint</b><span id="caseFlint">EPA-regulated facilities and their compliance. Water systems coming next.</span></a>
+    <a class="case steel" href="#map/flint"><span class="eyebrow">FLINT, MI</span><b>Permitted sites around Flint</b><span id="caseFlint">EPA-regulated facilities, toxic release reporters, and the drinking water systems serving Genesee County.</span></a>
   </div>
   <div class="statstrip" id="homeStats" aria-label="Coverage"></div>
 </section>
@@ -69,13 +69,16 @@
       <span><i class="dot" style="background:#5A6270"></i>Closed mine</span>
       <span><i class="dot" style="background:#86B6CC"></i>EPA facility</span>
       <span><i class="dot" style="background:#5A6270;box-shadow:0 0 0 2px #86B6CC"></i>Mine with EPA records</span>
-      <span><i class="dot" style="background:#EE7D67"></i>Silence detector flag</span>
+      <span><i class="dot" style="background:#EE7D67"></i>High-priority silence flag</span>
+      <span><i class="dot" style="background:#A87A70"></i>Lower-priority flag</span>
+      <span><i class="dot" style="background:#C39BD3"></i>Toxic release reporter</span>
+      <span><i class="dot" style="background:#4FC3D3"></i>Drinking water systems (by county)</span>
       <span class="muted-s">Bigger dot = more citations</span>
     </div>
   </aside>
 </main>
 <footer class="foot">Public records only · every fact links to its source · “linked to” never means “did this” · not legal advice · <a href="https://github.com/BuildBeyond1889/peoples-case-file" target="_blank" rel="noopener">How this works</a></footer>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

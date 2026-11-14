@@ -156,7 +156,7 @@ def money(v):
 
 def new_tally():
     return {'total': 0, 'sig_sub': 0, 'last5': 0, 'proposed': 0.0, 'due': 0.0, 'paid': 0.0,
-            'first': '', 'last': '', 'vacated': 0, 'contractor': 0}
+            'first': '', 'last': '', 'vacated': 0, 'contractor': 0, 'since2000': 0}
 
 
 def add_viol(t, r, cutoff):
@@ -169,6 +169,8 @@ def add_viol(t, r, cutoff):
         t['sig_sub'] += 1
     if day and day >= cutoff:
         t['last5'] += 1
+    if day and day >= '2000-01-01':
+        t['since2000'] += 1
     t['proposed'] += money(col(r, 'PROPOSED_PENALTY'))
     t['due'] += money(col(r, 'AMOUNT_DUE'))
     t['paid'] += money(col(r, 'AMOUNT_PAID'))
@@ -295,6 +297,10 @@ def msha(areas):
             x['properties']['citations'] = x['properties']['viol']['total']  # flat copy for map styling
         for cid, f in families.items():
             f['viol'] = by_ctl.get(cid)
+        try:
+            msha_fairness(links, feats)
+        except Exception as e:
+            log('MSHA fairness failed:', repr(e))
         viol_note = {'source': 'MSHA Violations (Open Government Data)', 'last5_from': cutoff,
                      'rule': 'Operator citations only; vacated citations excluded; each citation counted under the controller MSHA recorded when it was issued.'}
     except Exception as e:
@@ -344,7 +350,7 @@ def echo_columns():
             # silence-detector inputs
             'FacSNCFlg', 'FacFormalActionCount', 'FacInspectionCount', 'FacDaysLastInspection', 'FacDateLastInspection',
             'FacDateLastFormalAction', 'FacDateLastPenalty', 'FacComplianceStatus', 'CWAComplianceStatus', 'CWAPermitTypes',
-            'CWAFormalActionCount', 'CWAInspectionCount', 'CWADaysLastInspection'}
+            'CWAFormalActionCount', 'CWAInspectionCount', 'CWADaysLastInspection', 'NPDESIDs', 'TRIIDs'}
     try:
         url, body = fetch(ECHO + '.metadata', {'output': 'JSON'})
         archive('echo', 'metadata.json', url, body)
@@ -426,6 +432,8 @@ def echo_facilities(area_id, bbox):
                 'penalties': _num(f.get('FacTotalPenalties')),
                 'flags': silence_flags(f),
                 'flag_count': 0,
+                'npdes_ids': [x for x in re.split(r'[\s,;]+', f.get('NPDESIDs') or '') if x],
+                'qtrs_nc_raw': _int(f.get('FacQtrsWithNC')) or 0,
                 'last_inspection': f.get('FacDateLastInspection') or None,
                 'formal_actions_5y': _int(f.get('FacFormalActionCount')),
                 'snc': (f.get('FacSNCFlg') or '').upper() == 'Y',
@@ -521,14 +529,270 @@ def link_mines_epa(mines, facilities, max_m=500):
             'frs': fp['ids'].get('frs'), 'name': fp.get('name'), 'kind': fp.get('kind'),
             'qtrs_noncompliance': fp.get('qtrs_noncompliance'), 'penalties': fp.get('penalties'),
             'source_url': fp.get('source_url'), 'distance_m': int(d), 'basis': basis, 'confidence': conf,
-            'flags': fp.get('flags', [])})
-        if fp.get('flags'):
+            'flags': fp.get('flags', []), 'severity': fp.get('severity'), 'permits': fp.get('permits', []),
+            'tri': fp.get('tri'), 'last_inspection': fp.get('last_inspection')})
+        if fp.get('flag_level') == 2:
             mp['epa_flagged'] = True
         mp['has_epa'] = True
         fp['mine_link'] = {'mine_id': mp['ids']['msha_mine'], 'mine': mp.get('name'), 'basis': basis, 'confidence': conf}
         links += 1
     log(f'Mine<->EPA: {links} facilities linked to mines (inferred, labelled)')
     return links
+
+
+# ------------------------------------------------ fair comparisons (MSHA) ----
+def stream_pipe(body):
+    z = zipfile.ZipFile(io.BytesIO(body))
+    name = [n for n in z.namelist() if n.lower().endswith(('.txt', '.csv'))][0]
+    with z.open(name) as raw:
+        reader = csv.reader(io.TextIOWrapper(raw, encoding='latin-1', newline=''), delimiter='|')
+        header = [h.strip().upper() for h in next(reader)]
+        for rec in reader:
+            yield dict(zip(header, (x.strip() for x in rec)))
+
+
+def pct_rank(values, v):
+    """Share of the group with a LOWER value (0-100)."""
+    if not values:
+        return None
+    return round(100 * sum(1 for x in values if x < v) / len(values))
+
+
+def msha_fairness(links, feats, min_insp=10):
+    """Citations per inspection and per 100,000 tons, 2000 onward, ranked against the other pilot mines.
+    Counts alone favour big, long-running mines; rates make the comparison fair."""
+    ids = {x['properties']['ids']['msha_mine'] for x in feats}
+    insp, hours = {}, {}
+    url = next((l for l in links if l.lower().endswith('/inspections.zip')), MSHA_BASE + 'DataSets/Inspections.zip')
+    url, body = fetch(url, timeout=900)
+    archive('msha', 'Inspections.zip', url, body)
+    for r in stream_pipe(body):
+        mid = r.get('MINE_ID', '').strip('"')
+        if mid in ids and (msha_date(r.get('INSPECTION_BEGIN_DT', '').strip('"')) or '') >= '2000-01-01':
+            insp[mid] = insp.get(mid, 0) + 1
+    url = next((l for l in links if l.lower().endswith('/minesprodyearly.zip')), MSHA_BASE + 'DataSets/MinesProdYearly.zip')
+    url, body = fetch(url, timeout=600)
+    archive('msha', 'MinesProdYearly.zip', url, body)
+    tons, years = {}, {}
+    for r in stream_pipe(body):
+        mid = r.get('MINE_ID', '').strip('"')
+        if mid not in ids:
+            continue
+        t = money(r.get('ANNUAL_COAL_PROD', '').strip('"'))
+        if t > 0:
+            tons[mid] = tons.get(mid, 0) + t
+            years.setdefault(mid, set()).add(r.get('CALENDAR_YR', '').strip('"'))
+    rows = []
+    for x in feats:
+        p = x['properties']
+        mid = p['ids']['msha_mine']
+        c = (p.get('viol') or {}).get('since2000', 0)
+        fair = {'inspections': insp.get(mid, 0), 'tons': round(tons.get(mid, 0)), 'producing_years': len(years.get(mid, ())),
+                'citations_2000': c, 'window': '2000 to now'}
+        if fair['inspections'] >= min_insp:
+            fair['per_inspection'] = round(c / fair['inspections'], 2)
+        if fair['tons'] >= 100000:
+            fair['per_100k_tons'] = round(c / (fair['tons'] / 100000), 2)
+        p['fair'] = fair
+        rows.append(fair)
+    for key in ('per_inspection', 'per_100k_tons'):
+        vals = [r[key] for r in rows if key in r]
+        for r in rows:
+            if key in r:
+                r[key + '_pct'] = pct_rank(vals, r[key])
+                r[key + '_n'] = len(vals)
+    log(f'Fairness: {sum(1 for r in rows if "per_inspection" in r)} mines rated per inspection, '
+        f'{sum(1 for r in rows if "per_100k_tons" in r)} per 100k tons')
+
+
+# ------------------------------------------ EPA water permits (ICIS-NPDES) ----
+NPDES_ZIP = 'https://echo.epa.gov/files/echodownloads/npdes_downloads.zip'
+PERMIT_STATUS = {'EFF': 'Effective', 'EXP': 'Expired', 'ADC': 'Administratively continued (expired, kept in force while renewal is pending)',
+                 'TRM': 'Terminated', 'RET': 'Retired', 'PND': 'Pending', 'NOT': 'Not needed'}
+
+
+def stream_csv(z, name):
+    with z.open(name) as raw:
+        yield from csv.DictReader(io.TextIOWrapper(raw, encoding='latin-1', newline=''))
+
+
+def last_quarters(n=12):
+    y, q = int(TODAY[:4]), (int(TODAY[5:7]) - 1) // 3 + 1
+    out = []
+    for _ in range(n):
+        out.append(f'{y}{q}')
+        q -= 1
+        if q == 0:
+            y, q = y - 1, 4
+    return set(out)
+
+
+def npdes_enrich(facilities):
+    """Attach water-permit status/expiration and pollution-vs-paperwork quarter counts, joined on NPDES ID."""
+    want = {i for f in facilities for i in f['properties'].get('npdes_ids', [])}
+    if not want:
+        log('NPDES: facilities carry no NPDES IDs; skipping')
+        return 0
+    url, body = fetch(NPDES_ZIP, timeout=900)
+    archive('epa-npdes', 'npdes_downloads.zip', url, body)
+    z = zipfile.ZipFile(io.BytesIO(body))
+    permits = {}
+    for r in stream_csv(z, 'ICIS_PERMITS.csv'):
+        pid = r.get('EXTERNAL_PERMIT_NMBR')
+        if pid in want:
+            v = _int(r.get('VERSION_NMBR')) or 0
+            if pid not in permits or v >= permits[pid]['_v']:
+                code = r.get('PERMIT_STATUS_CODE') or ''
+                permits[pid] = {'_v': v, 'id': pid, 'status_code': code, 'status': PERMIT_STATUS.get(code, code or 'unknown'),
+                                'expiration': msha_date(r.get('EXPIRATION_DATE')), 'issued': msha_date(r.get('ISSUE_DATE')),
+                                'permit_name': r.get('PERMIT_NAME'), 'type': r.get('PERMIT_TYPE_CODE'),
+                                'water_body': r.get('STATE_WATER_BODY_NAME') or None}
+    qs = last_quarters(12)
+    qn = {}
+    for r in stream_csv(z, 'NPDES_QNCR_HISTORY.csv'):
+        pid = r.get('NPDES_ID')
+        if pid in want and r.get('YEARQTR') in qs:
+            t = qn.setdefault(pid, {'effluent_qtrs': 0, 'reporting_qtrs': 0, 'other_qtrs': 0})
+            if (_int(r.get('NUME90Q')) or 0) > 0:
+                t['effluent_qtrs'] += 1          # pollution: discharge limits exceeded
+            if (_int(r.get('NUMD8090Q')) or 0) > 0 or (_int(r.get('NUMPSCH')) or 0) > 0:
+                t['reporting_qtrs'] += 1         # paperwork: missing reports / schedules
+            if (_int(r.get('NUMCVDT')) or 0) > 0 or (_int(r.get('NUMSVCD')) or 0) > 0:
+                t['other_qtrs'] += 1
+    n = 0
+    for f in facilities:
+        fp = f['properties']
+        plist = []
+        for pid in fp.get('npdes_ids', []):
+            if pid in permits:
+                pm = {k: v for k, v in permits[pid].items() if k != '_v'}
+                pm.update(qn.get(pid, {}))
+                plist.append(pm)
+        if not plist:
+            continue
+        n += 1
+        fp['permits'] = plist
+        fp['effluent_qtrs'] = max((p.get('effluent_qtrs', 0) for p in plist), default=0)
+        for pm in plist:
+            if pm['status_code'] == 'EXP':
+                ev = f"Permit {pm['id']} status: Expired (expiration {pm['expiration'] or 'unknown'})"
+                if fp.get('qtrs_nc_raw'):
+                    ev += f"; still out of compliance {fp['qtrs_nc_raw']} of 12 quarters"
+                if pm.get('effluent_qtrs'):
+                    ev += f"; discharge limits exceeded in {pm['effluent_qtrs']} of the last 12 quarters"
+                fp['flags'].append({'code': 'expired_permit', 'label': 'Permit expired, still reporting violations' if fp.get('qtrs_nc_raw') else 'Permit expired', 'evidence': ev})
+                break
+    log(f'NPDES: {len(permits)} permits matched; {n} facilities enriched')
+    return n
+
+
+SEVERE = {'serious_no_enforcement', 'expired_permit'}
+
+
+def rank_flags(facilities):
+    """high = serious response gap or pollution; medium = everything else flagged."""
+    for f in facilities:
+        fp = f['properties']
+        flags = fp.get('flags', [])
+        level = 0
+        if flags:
+            level = 1
+            codes = {x['code'] for x in flags}
+            eff = fp.get('effluent_qtrs', 0)
+            qnc = fp.get('qtrs_nc_raw', 0)
+            if codes & SEVERE or eff >= 2 or (('violations_no_penalty' in codes) and qnc >= 8) or ('not_inspected' in codes and qnc >= 4):
+                level = 2
+        fp['flag_level'] = level
+        fp['severity'] = {2: 'high', 1: 'medium'}.get(level)
+        fp['flag_count'] = len(flags)
+
+
+# --------------------------------------------- Envirofacts: TRI + SDWIS ----
+EF = 'https://data.epa.gov/efservice/'
+EF_AREAS = {'harlan-ky': {'state': 'KY', 'county': 'Harlan', 'center': [-83.32, 36.86], 'label': 'Harlan County, KY'},
+            'flint-mi': {'state': 'MI', 'county': 'Genesee', 'center': [-83.69, 43.02], 'label': 'Genesee County, MI (Flint)'}}
+
+
+def ef(path, name):
+    url, body = fetch(EF + path, timeout=180)
+    archive('envirofacts', name, url, body)
+    data = json.loads(body)
+    return data if isinstance(data, list) else []
+
+
+def tri(facilities):
+    by_frs = {f['properties']['ids'].get('frs'): f for f in facilities}
+    feats = []
+    for aid, a in EF_AREAS.items():
+        rows = ef(f"tri_facility/state_abbr/{a['state']}/county_name/{a['county'].upper()}/JSON", f'tri-{aid}.json')
+        for r in rows:
+            parent = r.get('standardized_parent_company') or (r.get('parent_co_name') if r.get('parent_co_name') not in (None, 'NA') else None)
+            frs = r.get('epa_registry_id') or r.get('frs_id')
+            info = {'tri_id': r.get('tri_facility_id'), 'parent': parent, 'closed': r.get('fac_closed_ind') == '1',
+                    'foreign_parent': r.get('foreign_parent_co_name') if r.get('foreign_parent_co_name') not in (None, 'NA') else None}
+            lat = r.get('pref_latitude') or r.get('fac_latitude')
+            lon = r.get('pref_longitude') or r.get('fac_longitude')
+            echo = by_frs.get(frs)
+            if echo:
+                echo['properties']['tri'] = info      # same FRS ID: official join, high confidence
+            xy = None
+            try:
+                lo, la = float(lon), float(lat)
+                xy = [-abs(lo), la]
+            except (TypeError, ValueError):
+                if echo:
+                    xy = echo['geometry']['coordinates']
+            if not xy:
+                continue
+            feats.append({'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': xy}, 'properties': {
+                'name': r.get('facility_name'), 'kind': 'Toxics Release Inventory facility' + (' (closed)' if info['closed'] else ''),
+                'tri': info, 'city': r.get('city_name'),
+                'source': 'EPA Toxics Release Inventory (Envirofacts)',
+                'source_url': f'https://echo.epa.gov/detailed-facility-report?fid={frs}' if frs else None,
+                'as_of': TODAY, 'ids': {'tri': r.get('tri_facility_id'), 'frs': frs}}})
+    log(f'TRI: {len(feats)} facilities mapped')
+    return feats
+
+
+VIOL_CAT = {'MCL': 'Over the legal limit', 'MRDL': 'Over the disinfectant limit', 'TT': 'Treatment technique not met',
+            'MR': 'Monitoring or reporting', 'MON': 'Monitoring', 'RPT': 'Reporting', 'Other': 'Other'}
+
+
+def sdwis():
+    out = []
+    cutoff = str(int(TODAY[:4]) - 5) + TODAY[4:]
+    for aid, a in EF_AREAS.items():
+        areas = ef(f"GEOGRAPHIC_AREA/STATE_SERVED/{a['state']}/COUNTY_SERVED/{a['county']}/JSON", f'sdwis-geo-{aid}.json')
+        pwsids = sorted({r['pwsid'] for r in areas if r.get('pws_activity_code') == 'A' and r.get('pws_type_code') == 'CWS'})  # community systems (homes)
+        systems = []
+        for pid in pwsids:
+            ws = ef(f'WATER_SYSTEM/PWSID/{pid}/JSON', f'sdwis-ws-{pid}.json')
+            if not ws:
+                continue
+            w = ws[0]
+            v = ef(f'VIOLATION/PWSID/{pid}/JSON', f'sdwis-viol-{pid}.json')
+            def day(x):
+                return (x.get('compl_per_begin_date') or '')[:10]
+            recent = [x for x in v if day(x) >= cutoff]
+            systems.append({
+                'pwsid': pid, 'name': w.get('pws_name'), 'type': w.get('pws_type_code'), 'source': w.get('gw_sw_code'),
+                'population': w.get('population_served_count'), 'city': w.get('city_name'),
+                'violations': len(v), 'health_based': sum(1 for x in v if x.get('is_health_based_ind') == 'Y'),
+                'last5': len(recent), 'health_last5': sum(1 for x in recent if x.get('is_health_based_ind') == 'Y'),
+                'lead_copper': sum(1 for x in v if str(x.get('rule_code')) == '350'),
+                'open': sum(1 for x in v if x.get('compliance_status_code') in ('O', 'K')),
+                'by_category': {VIOL_CAT.get(k, k): sum(1 for x in v if x.get('violation_category_code') == k)
+                                for k in sorted({x.get('violation_category_code') for x in v if x.get('violation_category_code')})},
+                'latest': max((day(x) for x in v), default=None),
+            })
+        systems.sort(key=lambda s: (-(s['health_last5']), -(s['health_based']), -(s['population'] or 0)))
+        out.append({'area': aid, 'label': a['label'], 'center': a['center'], 'systems': systems,
+                    'source': 'EPA Safe Drinking Water Information System (Envirofacts)', 'as_of': TODAY})
+        log(f"SDWIS {aid}: {len(systems)} active systems")
+    feats = [{'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': o['center']}, 'properties': {
+        'name': 'Water systems serving ' + o['label'], 'area': o['area'], 'kind': 'Drinking water systems',
+        'count': len(o['systems']), 'health_last5': sum(s['health_last5'] for s in o['systems'])}} for o in out]
+    return out, feats
 
 
 def write_json(name, obj):
@@ -555,6 +819,27 @@ def main():
         except Exception as e:
             log(f'ECHO {area_id} failed:', repr(e))
             report.setdefault('echo_errors', []).append(f'{area_id}: {e!r}')
+    if facilities:
+        try:
+            report['npdes_enriched'] = npdes_enrich(facilities)
+        except Exception as e:
+            log('NPDES enrich failed:', repr(e))
+        rank_flags(facilities)
+    tri_feats = []
+    try:
+        tri_feats = tri(facilities)
+    except Exception as e:
+        log('TRI failed:', repr(e))
+    if tri_feats:
+        layers['tri'] = write_json('tri.geojson', {'type': 'FeatureCollection', 'features': tri_feats})
+    try:
+        water, water_feats = sdwis()
+        write_json('water.json', water)
+        if water_feats:
+            layers['water'] = write_json('water.geojson', {'type': 'FeatureCollection', 'features': water_feats})
+        report['water_systems'] = sum(len(w['systems']) for w in water)
+    except Exception as e:
+        log('SDWIS failed:', repr(e))
     if feats and facilities:
         try:
             report['mine_epa_links'] = link_mines_epa(feats, facilities)
@@ -564,7 +849,9 @@ def main():
         layers['mines'] = write_json('mines.geojson', {'type': 'FeatureCollection', 'features': feats})
     if facilities:
         layers['facilities'] = write_json('facilities.geojson', {'type': 'FeatureCollection', 'features': facilities})
-    report['echo'] = {'facilities': len(facilities), 'silence_flagged': sum(1 for f in facilities if f['properties'].get('flags'))}
+    report['echo'] = {'facilities': len(facilities), 'silence_flagged': sum(1 for f in facilities if f['properties'].get('flags')),
+                      'high_severity': sum(1 for f in facilities if f['properties'].get('flag_level') == 2)}
+    report['tri'] = len(tri_feats)
 
     write_json('index.json', {'pulled': TODAY, 'layers': layers, 'report': report})
     log('REPORT', json.dumps(report, indent=1))

@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -52,9 +52,11 @@ jobs:
           TAG="archive-$(date -u +%Y-%m)"
           FILE="raw-$(date -u +%Y-%m-%d).tar.gz"
           tar -czf "$FILE" archive
-          sha256sum "$FILE" > "$FILE.sha256"
+          # release assets must be under 2 GiB: split big archives into numbered parts
+          if [ "$(stat -c%s "$FILE")" -gt 1900000000 ]; then split -b 1900m -d "$FILE" "$FILE.part"; rm "$FILE"; fi
+          sha256sum "$FILE"* > "$FILE.sha256"
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Raw archive $TAG" --notes "Unmodified public-record snapshots with SHA-256 manifests. Never edited after upload."
-          gh release upload "$TAG" "$FILE" "$FILE.sha256" --clobber
+          gh release upload "$TAG" "$FILE"* --clobber
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
