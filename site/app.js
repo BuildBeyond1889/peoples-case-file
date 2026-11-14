@@ -265,7 +265,8 @@
         <span class="when">${Object.entries(sy.by_category || {}).map(([k, n]) => esc(k) + ': ' + num(n)).join(' · ')}</span>
         ${(sy.health_last5 || sy.lead_copper) ? `<button type="button" class="linkbtn" data-letter="${esc(regWaterLetter(sy, area))}">Draft a records request →</button>` : ''}
         <span class="when pro">PWSID ${esc(sy.pwsid)}</span></div></li>`).join('')}</ul>
-      <p class="note">Health-based means the water went over a legal limit or missed a required treatment step. Monitoring and reporting violations are paperwork problems, counted separately.</p>
+      <p class="note">Health-based means the water went over a legal limit or missed a required treatment step. Monitoring and reporting violations are paperwork problems, counted separately. “Lead and Copper Rule” counts include monitoring violations under that rule.</p>
+      <p class="flag">Federal violation records only show what agencies formally recorded, and can miss what residents lived through. Flint’s 2014–15 crisis is a reminder: check state records, news and court files too.</p>
       <p class="src">SOURCE: ${esc(w.source)} · pulled ${esc(w.as_of)}</p>`);
   }
 
