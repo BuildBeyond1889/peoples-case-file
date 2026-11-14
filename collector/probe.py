@@ -1,33 +1,27 @@
 #!/usr/bin/env python3
-"""Probe 3: how the KY SOS profile loads officers; how search rows link to profiles."""
+"""Probe 4: press the KY SOS profile's officer button (full postback) and parse the officers."""
 import re, urllib.parse, urllib.request, http.cookiejar
 UA = 'PeoplesCaseFile/0.2 (public-records research; https://github.com/BuildBeyond1889/peoples-case-file)'
 op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-def get(url, data=None, ct='application/x-www-form-urlencoded'):
+def get(url, data=None):
     h = {'User-Agent': UA}
-    if data: h['Content-Type'] = ct
+    if data: h['Content-Type'] = 'application/x-www-form-urlencoded'
     with op.open(urllib.request.Request(url, data=data, headers=h), timeout=120) as r:
         return r.geturl(), r.read().decode('utf-8', 'replace')
-u, prof = get('https://sosbes.sos.ky.gov/BusSearchNProfile/Profile.aspx?ctr=1053155')
-for m in re.finditer(r'<script[^>]*>(.*?)</script>', prof, re.S):
-    s = m.group(1)
-    if re.search(r'asmx|ajax|fetch\(|WebMethod|Officer|Representative|ctr', s, re.I):
-        print('--- inline script ---'); print(s[:4000])
-for src in re.findall(r'<script[^>]*src="([^"]+)"', prof):
-    print('script src', src)
-    if 'jquery' in src.lower() or 'bootstrap' in src.lower() or 'googletag' in src: continue
-    try:
-        u2, js = get(urllib.parse.urljoin(u, src))
-        for mm in re.finditer(r'.{0,300}(asmx|ajax|Officer|Representative).{0,500}', js, re.I):
-            print('   JS:', mm.group(0)[:800])
-    except Exception as e:
-        print('   fail', e)
-i = prof.find('Loading...')
-print('--- html near Loading ---'); print(prof[i - 2500:i + 600])
-S = 'https://sosbes.sos.ky.gov/BusSearchNProfile/search.aspx'
-u, html = get(S)
-form = {m.group(1): m.group(2) for m in re.finditer(r'<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', html)}
-form.update({'ctl00$MainContent$ddlSearchBy': 'Business Name or Organization Number', 'ctl00$MainContent$txtSearch': 'Bluegrass Natural Resources', 'ctl00$MainContent$BSearch': 'Search'})
-u, res = get(S, urllib.parse.urlencode(form).encode())
-i = res.find('BLUEGRASS NATURAL RESOURCES LLC')
-print('--- search row html ---'); print(res[i - 1500:i + 400])
+for ctr in ('1307323', '1053155'):
+    url = f'https://sosbes.sos.ky.gov/BusSearchNProfile/Profile.aspx/?ctr={ctr}'
+    u, prof = get(url)
+    btns = re.findall(r'<input type="submit" name="([^"]+)" value="([^"]+)"', prof)
+    print('\n###', ctr, u, 'buttons', btns)
+    form = {m.group(1): m.group(2) for m in re.finditer(r'<input type="hidden" name="([^"]+)"[^>]*value="([^"]*)"', prof)}
+    for name, val in btns:
+        if not re.search(r'Officer|Repres|Member|Manager', name + val, re.I):
+            continue
+        f = dict(form); f[name] = val
+        u2, page = get(u, urllib.parse.urlencode(f).encode())
+        i = page.find(name.split('$')[-1].replace('Btn', ''))
+        txt = re.sub(r'[ \t]+', ' ', re.sub(r'<[^>]+>', ' | ', page))
+        j = max(txt.find('Current Officers'), txt.find('Officers'), txt.find('Representatives'))
+        print('pressed', name, len(page))
+        k = txt.find('Registered Agent')
+        print(re.sub(r'(\s*\|\s*)+', ' | ', txt[k:k + 3000]))
