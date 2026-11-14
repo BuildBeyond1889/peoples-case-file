@@ -55,6 +55,8 @@
       : 'Data pulled ' + esc(meta.pulled) + ' · archived copies kept';
     for (const L of LAYERS) {
       const data = byLayer[L.id] || { type: 'FeatureCollection', features: [] };
+      L.count = data.features.length;
+      if (!L.count) L.on = false;
       map.addSource(L.id, { type: 'geojson', data });
       map.addLayer({
         id: L.id, type: 'circle', source: L.id,
@@ -74,7 +76,9 @@
 
   function buildLayerList() {
     $('layerList').innerHTML = LAYERS.map((L) =>
-      `<label><input type="checkbox" data-l="${L.id}" ${L.on ? 'checked' : ''}>${esc(L.name)}<span class="tag">${esc(L.tag)}</span></label>`).join('');
+      L.count
+        ? `<label><input type="checkbox" data-l="${L.id}" ${L.on ? 'checked' : ''}>${esc(L.name)} <span class="muted">(${L.count.toLocaleString()})</span><span class="tag">${esc(L.tag)}</span></label>`
+        : `<label><input type="checkbox" disabled>${esc(L.name)}<span class="soon">not collected yet</span></label>`).join('');
     $('layerList').addEventListener('change', (e) => {
       const id = e.target.dataset.l; if (!id) return;
       map.setLayoutProperty(id, 'visibility', e.target.checked ? 'visible' : 'none');
