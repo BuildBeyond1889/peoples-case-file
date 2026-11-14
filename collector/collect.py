@@ -1689,6 +1689,78 @@ def registry(families, mines, max_new=70, refresh_days=30):
     return out
 
 
+KY_ESEARCH_API = 'https://dep.gateway.ky.gov/eSearch.WebApi/api/PendingApproval/Search'
+KY_ESEARCH = 'https://dep.gateway.ky.gov/eSearch/'
+MI_NOTICES = 'https://mienviro.michigan.gov/ncore/ss/publicnoticeslist'
+# Stages where the public can usually weigh in. 'Draft' = a draft permit/decision is out, which in Kentucky
+# normally opens a 30-day public comment period. We say "usually" and link the official record.
+OPEN_STAGES = re.compile(r'draft|public notice|comment|hearing', re.I)
+
+
+def comments(mines, facilities):
+    """Public-comment alerts: permit actions pending with the state, and which ones are at a stage where the public can weigh in."""
+    out = {'as_of': TODAY, 'areas': {}}
+    for aid, a in EF_AREAS.items():
+        items, src = [], None
+        try:
+            if a['state'] == 'KY':
+                src = {'name': 'Kentucky Department for Environmental Protection, eSearch Pending Actions/Approvals',
+                       'url': KY_ESEARCH + 'Approvals/Pending?county=' + urllib.parse.quote(a['county'])}
+                req = urllib.request.Request(KY_ESEARCH_API, data=json.dumps({'County': a['county']}).encode(),
+                                             headers={'User-Agent': UA, 'Content-Type': 'application/json'})
+                with urllib.request.urlopen(req, timeout=120) as r:
+                    body = r.read()
+                archive('ky-esearch', f'pending-{aid}.json', KY_ESEARCH_API, body)
+                for x in json.loads(body) or []:
+                    name = x.get('AgencyName') or ''
+                    m = re.search(r'\((\d{3})-(\d{4})\)', name)
+                    stage = x.get('CurrentMilestone') or ''
+                    items.append({'id': f"KY-{x.get('AgencyId')}-{x.get('ActivityCode')}-{int(x.get('ActivityYear') or 0)}-{int(x.get('ActivityNum') or 0)}",
+                                  'name': name, 'program': x.get('Program'), 'type': x.get('ActivityType'), 'stage': stage,
+                                  'stage_date': (x.get('MilestoneDate') or '')[:10] or None, 'town': x.get('Municipality'),
+                                  'open': bool(OPEN_STAGES.search(stage)), 'has_documents': bool(x.get('DetailRows')),
+                                  'ky_mine_permit': (m.group(1) + m.group(2)) if m else None, 'agency_id': x.get('AgencyId'),
+                                  'url': f"{KY_ESEARCH}agencydetails?agencyid={x.get('AgencyId')}",
+                                  'comment_to': 'DOWPublicNotice@ky.gov' if (x.get('Program') or '') in ('Wastewater', 'Water Quality', 'Water Resources', 'Drinking Water') else None})
+            elif a['state'] == 'MI':
+                src = {'name': 'Michigan EGLE, MiEnviro Portal public notices', 'url': 'https://mienviro.michigan.gov/ncore/external/publicnotice/search'}
+                url, body = fetch(MI_NOTICES, {'includeMetadataInResponse': 'false'}, headers={'Accept': 'application/json'}, timeout=120)
+                archive('mi-mienviro', f'notices-{aid}.json', url, body)
+                j = json.loads(body)
+                rows = j.get('queryResults', j) if isinstance(j, dict) else j
+                log('MiEnviro notices: keys', list(rows[0].keys())[:40] if rows else None, 'count', len(rows))
+                for x in rows or []:
+                    blob = ' '.join(str(v) for v in x.values() if isinstance(v, (str, int, float)))
+                    if not re.search(r'genesee|flint|burton|grand blanc|mount morris|davison|fenton|swartz creek|clio|flushing', blob, re.I):
+                        continue
+                    items.append({'id': f"MI-{x.get('id')}", 'name': x.get('siteName') or x.get('contactNamePermit') or x.get('name') or x.get('title'),
+                                  'program': x.get('permittingProgramDescription') or x.get('programName'), 'type': x.get('publicNoticeTypeDescription') or x.get('type'),
+                                  'stage': 'Open for public comment', 'stage_date': str(x.get('startDate') or '')[:10] or None,
+                                  'ends': str(x.get('endDate') or '')[:10] or None, 'town': x.get('city') or x.get('county'), 'open': True,
+                                  'url': f"https://mienviro.michigan.gov/ncore/external/publicnotice/info/{x.get('id')}/details"})
+        except Exception as e:
+            log(f'Comments {aid} failed:', repr(e))
+            out['areas'][aid] = {'label': a['label'], 'source': src, 'error': 'not reachable this run', 'items': []}
+            continue
+        items.sort(key=lambda i: (not i['open'], -(int((i.get('stage_date') or '0000-00-00').replace('-', '')))))
+        out['areas'][aid] = {'label': a['label'], 'source': src, 'items': items}
+        log(f'Comments {aid}: {len(items)} pending actions, {sum(1 for i in items if i["open"])} at a public-comment stage')
+    # tie pending actions to mines / EPA sites through the Kentucky mine permit number in the name
+    by_permit = {}
+    for area in out['areas'].values():
+        for i in area['items']:
+            if i.get('ky_mine_permit'):
+                by_permit.setdefault(i['ky_mine_permit'], []).append(i)
+    tied = 0
+    for f in list(mines) + list(facilities):
+        hits = [i for r in f['properties'].get('ky_permits', []) for i in by_permit.get(r['permit'], [])]
+        if hits:
+            f['properties']['pending'] = hits[:5]
+            tied += 1
+    out['tied_to_map'] = tied
+    return out
+
+
 def write_json(name, obj):
     os.makedirs(OUT, exist_ok=True)
     json.dump(obj, open(os.path.join(OUT, name), 'w'), separators=(',', ':'))
@@ -1772,6 +1844,12 @@ def main():
             report['registry'] = {'names': len(reg['by_name']), 'found': reg['matched']}
         except Exception as e:
             log('Registry failed:', repr(e))
+    try:
+        com = comments(feats, facilities)
+        write_json('comments.json', com)
+        report['comments'] = {k: len(v['items']) for k, v in com['areas'].items()}
+    except Exception as e:
+        log('Comments failed:', repr(e))
     if feats and facilities:
         try:
             report['mine_epa_links'] = link_mines_epa(feats, facilities)

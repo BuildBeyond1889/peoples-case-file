@@ -57,6 +57,7 @@
   let money = null;       // money.json: USAspending / FEC / CourtListener by normalized name
   let parents = null;     // parents.json: GLEIF legal-entity records by normalized name
   let registry = null;    // registry.json: Kentucky Secretary of State records by normalized name
+  let pendingData = null; // comments.json: permit actions pending with the state (public-comment alerts)
   const intro = $('detailBody').innerHTML;
 
   async function loadData() {
@@ -70,6 +71,7 @@
       try { money = await getJSON('data/money.json'); } catch (e) {}
       try { parents = await getJSON('data/parents.json'); } catch (e) {}
       try { registry = await getJSON('data/registry.json'); } catch (e) {}
+      try { pendingData = await getJSON('data/comments.json'); } catch (e) {}
     } catch (e) {
       const s = await getJSON('data/sample.geojson');
       for (const L of LAYERS) byLayer[L.id] = { type: 'FeatureCollection', features: s.features.filter((f) => f.properties.layer === L.id) };
@@ -206,6 +208,7 @@
       ${epaHtml}
       ${histHtml}
       ${kyPermitsHtml(parse(p.ky_permits, []))}
+      ${pendingCardHtml(p)}
       <div class="btns"><button type="button" class="btn" data-letter="${esc(regMineLetter(p, ids, v))}">Request this mine’s MSHA records →</button></div>
       <p class="note">Owned by a public company? Its annual report lists the mine by ID (Exhibit 95): <a href="https://www.sec.gov/edgar/search/#/q=${encodeURIComponent(`"${ids.msha_mine}" OR "${String(ids.msha_mine).slice(0, 2)}-${String(ids.msha_mine).slice(2)}"`)}" target="_blank" rel="noopener">search SEC filings for ${esc(ids.msha_mine)}</a>.</p>
       ${flags.length ? `<p class="flag">Data note: ${flags.map(esc).join('; ')}</p>` : ''}
@@ -248,6 +251,7 @@
         <div class="stat"><span class="k">Penalties on record</span><span class="v">${p.penalties != null ? usd(p.penalties) : '—'}</span><span class="s">EPA programs</span></div>
       </div>
       ${flagsHtml(flags, '', p.severity, key)}
+      ${pendingCardHtml(p)}
       ${permits.map(permitHtml).join('')}
       ${kyPermitsHtml(parse(p.ky_permits, []))}
       ${triInfo && triInfo.parent ? `<div class="row"><span class="lbl">Parent company (reported to EPA TRI)</span><span>${esc(triInfo.parent)}${triInfo.foreign_parent ? ' · foreign parent ' + esc(triInfo.foreign_parent) : ''}</span></div>` : ''}
@@ -259,6 +263,42 @@
   }
 
   const pct = (v) => num(Math.round(v)) + '%';
+  function factsFor(p) {
+    const out = [];
+    for (const f of parse(p.flags, [])) if (f && f.evidence) out.push(`${f.label}: ${f.evidence}`);
+    for (const pm of parse(p.permits, [])) {
+      const ex = pm.exceed;
+      if (ex?.exceedances) out.push(`Permit ${pm.id} reported ${ex.exceedances} readings over its limits in the last 3 years; worst: ${ex.parameters.slice(0, 2).map((x) => `${x.name} ${pct(x.max_pct)} over`).join(', ')} (EPA ECHO discharge reports).`);
+    }
+    const v = parse(p.viol, null);
+    if (v?.total) out.push(`MSHA records ${num(v.total)} safety citations at mine ${parse(p.ids, {}).msha_mine || ''}${v.last5 ? `, ${num(v.last5)} in the last 5 years` : ''}.`);
+    for (const e of parse(p.epa, [])) for (const f of (e.flags || [])) out.push(`${e.name}: ${f.label} (${f.evidence})`);
+    return [...new Set(out)].slice(0, 6).map((x) => `${p.name}: ${x}`);
+  }
+  function stageBadge(i) {
+    return i.open ? `<span class="pbadge open">${esc(i.stage)} · comment window usually open</span>` : `<span class="pbadge">${esc(i.stage || 'pending')}</span>`;
+  }
+  function pendingRow(i, facts, ids) {
+    return `<li class="prow"><div><b>${esc(i.name)}</b>${stageBadge(i)}<span class="when">${esc(i.program || '')}${i.type ? ' · ' + esc(i.type) : ''}${i.town ? ' · ' + esc(i.town) : ''}${i.stage_date ? ' · stage reached ' + esc(i.stage_date) : ''}${i.ends ? ' · comments due ' + esc(i.ends) : ''}</span></div>
+      <div class="pacts"><a class="rlink" href="${esc(i.url)}" target="_blank" rel="noopener">Official record</a>${i.open ? `<button type="button" class="linkbtn" data-letter="${esc(commentLetter(i, facts, ids))}">Draft a comment →</button>` : ''}</div></li>`;
+  }
+  function pendingCardHtml(p) {
+    const list = parse(p.pending, []);
+    if (!list.length) return '';
+    const facts = factsFor(p);
+    return `<div class="pendbox"><p class="eyebrow">PENDING WITH THE STATE</p><ol class="hist">${list.map((i) => pendingRow(i, facts)).join('')}</ol>
+      <p class="note">Tied through the Kentucky mine permit number in the state’s record.</p></div>`;
+  }
+  function renderHomePending() {
+    const el = $('homePending'); if (!el) return;
+    if (!pendingData) { el.innerHTML = '<p class="muted-s">Not collected yet.</p>'; return; }
+    el.innerHTML = Object.entries(pendingData.areas || {}).map(([aid, a]) => {
+      const items = a.items || [];
+      const open = items.filter((i) => i.open);
+      return `<div class="parea"><div class="parea-h"><b>${esc(a.label)}</b><span class="muted-s">${a.error ? 'Source not reachable this run' : `${num(items.length)} pending · ${num(open.length)} at a comment stage`}</span>${a.source ? `<a class="rlink" href="${esc(a.source.url)}" target="_blank" rel="noopener">${esc(a.source.name)}</a>` : ''}</div>
+        ${items.length ? `<ol class="hist">${items.slice(0, 8).map((i) => pendingRow(i, [])).join('')}</ol>${items.length > 8 ? `<details><summary>${num(items.length - 8)} more</summary><ol class="hist">${items.slice(8).map((i) => pendingRow(i, [])).join('')}</ol></details>` : ''}` : `<p class="muted-s">${a.error ? '' : 'Nothing pending right now.'}</p>`}</div>`;
+    }).join('') + `<p class="note">Stages come from the state’s own tracking system and change daily. Always check the official notice for the deadline. Not legal advice.</p>`;
+  }
   function permitHtml(pm) {
     const ex = pm.exceed, ins = pm.inspections || {}, inf = pm.informal || {}, fo = pm.formal || {};
     const exHtml = ex ? (ex.exceedances
@@ -767,21 +807,32 @@
       source: 'EPA Safe Drinking Water Information System', items, ids: ['PWSID ' + sy.pwsid] };
     return key;
   }
+  function commentLetter(item, facts, extraIds) {
+    const key = 'L' + (++letterSeq);
+    letters[key] = { kind: 'comment', to: item.comment_to ? `Kentucky Division of Water, Surface Water Permits Branch (${item.comment_to})` : (item.id.startsWith('MI') ? 'Michigan EGLE, through the comment button on the MiEnviro Portal notice' : 'The agency named in the public notice'),
+      subject: `Public comment: ${item.name}${item.type ? ' (' + item.type + ')' : ''}`, item, facts: facts || [], ids: [item.agency_id ? 'Agency Interest ID ' + item.agency_id : null, item.ky_mine_permit ? 'Kentucky mine permit ' + item.ky_mine_permit : null, ...(extraIds || [])].filter(Boolean) };
+    return key;
+  }
   function letterText(L) {
     const today = new Date().toISOString().slice(0, 10);
+    if (L.kind === 'comment') {
+      const it = L.item;
+      return `[Your name]\n[Your mailing address or email]\n[Optional: how you are affected, e.g. you live downstream or get water from this area]\n\n${today}\n\nTo: ${L.to}\n\nRe: ${L.subject}\n${L.ids.length ? 'Identifiers: ' + L.ids.join('; ') + '\n' : ''}\nI submit these comments on the pending ${it.type || 'action'} for ${it.name}${it.town ? ' (' + it.town + ')' : ''}.\n\n${L.facts.length ? `Public records for the same site (inside the same state mine permit area; the companies named may differ from the applicant) show:\n${L.facts.map((x) => '- ' + x).join('\n')}\n\n` : ''}I ask the agency to:\n1. Hold a public hearing in the community before deciding.\n2. ${L.facts.length ? 'Explain in writing how the permit will prevent a repeat of the violations above, and what limits, monitoring and enforcement it includes.' : 'Explain in writing what limits, monitoring and enforcement the permit includes.'}\n3. Make the draft permit, fact sheet and the company's compliance history available online for the full comment period.\n4. Respond in writing to these comments and notify me of the final decision.\n\nThank you,\n[Your name]`;
+    }
     return `[Your name]\n[Your mailing address or email]\n\n${today}\n\nTo: ${L.to}\n\nRe: ${L.subject}\n\nUnder ${L.law}, I request copies of the following public records:\n\n${L.items.map((x, i) => `${i + 1}. ${x}`).join('\n')}\n\n${L.facts.length ? `For context, public data (${L.source}) shows:\n${L.facts.map((x) => '- ' + x).join('\n')}\n\n` : ''}Identifiers: ${L.ids.join('; ')}.\n\nI prefer electronic copies. If any part of this request is denied, please cite the specific exemption and release all parts that are not exempt. I ask that fees be waived because the records will be used to inform the public about environmental and public-health conditions; if fees will exceed $25, please tell me before proceeding.\n\nThank you,\n[Your name]`;
   }
   function showLetter(key) {
     const L = letters[key]; if (!L) return;
     const text = letterText(L);
-    show(`<p class="eyebrow">RECORDS REQUEST · DRAFT</p>
-      <h2 class="card-title">Ask the agency</h2>
-      <p class="muted-s">Fill in your name and contact, check the agency’s current records-request address or online portal, then send. Agencies must answer within deadlines set by law (often 5 business days for Kentucky and Michigan, 20 working days for federal FOIA).</p>
+    const isC = L.kind === 'comment';
+    show(`<p class="eyebrow">${isC ? 'PUBLIC COMMENT · DRAFT' : 'RECORDS REQUEST · DRAFT'}</p>
+      <h2 class="card-title">${isC ? 'Weigh in before they decide' : 'Ask the agency'}</h2>
+      <p class="muted-s">${isC ? `Comments count only while the comment period is open. Check the official notice for the deadline and where to send it${L.item.url ? ` (<a href="${esc(L.item.url)}" target="_blank" rel="noopener">official record</a>)` : ''}. Add how it affects you, in your own words; that matters most.` : 'Fill in your name and contact, check the agency’s current records-request address or online portal, then send. Agencies must answer within deadlines set by law (often 5 business days for Kentucky and Michigan, 20 working days for federal FOIA).'}</p>
       <textarea id="letterBox" class="letter" rows="18" aria-label="Letter text">${esc(text)}</textarea>
       <div class="btns"><button type="button" class="btn primary" id="copyLetter">Copy letter</button><button type="button" class="btn" id="dlLetter">Download .txt</button></div>
-      <p class="note">A draft to help you ask for public records. Not legal advice. Talk to legal aid or a lawyer about anything beyond a records request.</p>`);
+      <p class="note">${isC ? 'A draft to help you take part in a public process. Not legal advice. A local legal aid office or law-school clinic can help with hearings and appeals.' : 'A draft to help you ask for public records. Not legal advice. Talk to legal aid or a lawyer about anything beyond a records request.'}</p>`);
     $('copyLetter').onclick = async () => { try { await navigator.clipboard.writeText($('letterBox').value); $('copyLetter').textContent = 'Copied'; } catch (err) { $('letterBox').select(); } };
-    $('dlLetter').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([$('letterBox').value], { type: 'text/plain' })); a.download = 'records-request.txt'; a.click(); };
+    $('dlLetter').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([$('letterBox').value], { type: 'text/plain' })); a.download = isC ? 'public-comment.txt' : 'records-request.txt'; a.click(); };
   }
 
   $('detail').addEventListener('click', (e) => {
@@ -865,7 +916,14 @@
     $('search').requestSubmit();
   });
 
+  $('homePending')?.addEventListener('click', (e) => {
+    const lt = e.target.closest('[data-letter]'); if (!lt) return;
+    const key = lt.dataset.letter;
+    pendingMap = () => showLetter(key);
+    location.hash = '#map/harlan';
+  });
   ready.then(() => {
+    renderHomePending();
     const mines = Object.values(mineById);
     const facs = facFeatures;
     const flagged = facs.filter((f) => f.properties.flag_level === 2).length;

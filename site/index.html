@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 </head>
 <body class="on-home">
 <header class="top">
@@ -51,6 +51,9 @@
     <a class="case steel" href="#map/flint"><span class="eyebrow">FLINT, MI</span><b>Permitted sites around Flint</b><span id="caseFlint">EPA-regulated facilities, toxic release reporters, and the drinking water systems serving Genesee County.</span></a>
   </div>
   <div class="statstrip" id="homeStats" aria-label="Coverage"></div>
+  <h2 class="serif sect">Your turn to weigh in</h2>
+  <p class="muted-s sectnote">Permit actions pending with the state right now. When a draft is out, the public can usually comment, and can ask for a hearing.</p>
+  <div id="homePending" class="pending" aria-live="polite"><p class="muted-s">Loading pending permits…</p></div>
 </section>
 <section id="familyPage" class="fampage" aria-label="Controller family"></section>
 <main class="wrap">
@@ -80,6 +83,6 @@
 </main>
 <footer class="foot">Public records only · every fact links to its source · “linked to” never means “did this” · not legal advice · <a href="https://github.com/BuildBeyond1889/peoples-case-file" target="_blank" rel="noopener">How this works</a></footer>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>
