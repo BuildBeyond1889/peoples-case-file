@@ -79,12 +79,12 @@
         paint: {
           'circle-color': isMine
             ? ['case', ['==', ['get', 'status'], 'Active'], '#E3A44E', '#5A6270']
-            : (L.id === 'facilities' ? '#86B6CC' : '#9CC6D8'),
+            : (L.id === 'facilities' ? ['case', ['>', ['coalesce', ['get', 'flag_count'], 0], 0], '#EE7D67', '#86B6CC'] : '#9CC6D8'),
           'circle-radius': isMine
             ? ['interpolate', ['linear'], ['sqrt', ['coalesce', ['get', 'citations'], 0]], 0, 4, 10, 9, 40, 18]
             : ['interpolate', ['linear'], ['coalesce', ['get', 'qtrs_noncompliance'], 0], 0, 4, 12, 10],
           'circle-opacity': 0.9,
-          'circle-stroke-color': isMine ? ['case', ['==', ['get', 'has_epa'], true], '#86B6CC', '#0A0C0F'] : '#0A0C0F',
+          'circle-stroke-color': isMine ? ['case', ['==', ['get', 'epa_flagged'], true], '#EE7D67', ['==', ['get', 'has_epa'], true], '#86B6CC', '#0A0C0F'] : '#0A0C0F',
           'circle-stroke-width': isMine ? ['case', ['==', ['get', 'has_epa'], true], 2.5, 1.2] : 1.2,
         },
       });
@@ -100,6 +100,12 @@
       L.count
         ? `<label><input type="checkbox" data-l="${L.id}" ${L.on ? 'checked' : ''}>${esc(L.name)} <span class="count">${num(L.count)}</span><span class="tag">${esc(L.tag)}</span></label>`
         : `<label><input type="checkbox" disabled>${esc(L.name)}<span class="soon">not collected yet</span></label>`).join('');
+    $('layerList').insertAdjacentHTML('beforeend', `<label class="flagonly"><input type="checkbox" id="flagOnly">Only show silence-detector flags</label>`);
+    $('flagOnly').addEventListener('change', (e) => {
+      const on = e.target.checked;
+      if (map.getLayer('facilities')) map.setFilter('facilities', on ? ['all', ['!', ['has', 'mine_link']], ['>', ['coalesce', ['get', 'flag_count'], 0], 0]] : ['!', ['has', 'mine_link']]);
+      if (map.getLayer('mines')) map.setFilter('mines', on ? ['==', ['get', 'epa_flagged'], true] : null);
+    });
     $('layerList').addEventListener('change', (e) => {
       const id = e.target.dataset.l; if (!id) return;
       map.setLayoutProperty(id, 'visibility', e.target.checked ? 'visible' : 'none');
@@ -126,6 +132,13 @@
       <p class="note pro">Proposed at issue: ${usd(v.proposed)} · vacated citations left out: ${num(v.vacated)}${v.contractor != null ? ' · cited to contractors (not counted): ' + num(v.contractor) : ''}</p>`;
   }
 
+  function flagsHtml(flags, where) {
+    if (!flags || !flags.length) return '';
+    return `<div class="silence"><p class="eyebrow" style="color:var(--coral)">SILENCE DETECTOR${where ? ' · ' + esc(where) : ''}</p><ul>${flags.map((f) =>
+      `<li><b>${esc(f.label)}</b><span class="when">${esc(f.evidence)}</span></li>`).join('')}</ul>
+      <p class="note">A question worth asking the agency, not a finding of wrongdoing. Check the EPA report.</p></div>`;
+  }
+
   function personLabel(name, type) {
     return (type || '').toUpperCase().startsWith('P') ? `${esc(name)} <span class="muted-s">(individual, as named in MSHA records)</span>` : esc(name);
   }
@@ -140,6 +153,7 @@
     const epaHtml = epa.length ? `<details open><summary>EPA records at this site (${epa.length})</summary><ol class="hist">${epa.map((e) =>
       `<li><b>${esc(e.name)}</b> <span class="muted-s">${esc(e.kind || '')}</span>` +
       `<br>${e.qtrs_noncompliance != null ? `<span class="${e.qtrs_noncompliance >= 4 ? 'hot' : ''}">${esc(e.qtrs_noncompliance)} of last 12 quarters out of compliance</span>` : 'Compliance: not reported'}${e.penalties ? ' · penalties ' + usd(e.penalties) : ''}` +
+      (e.flags && e.flags.length ? `<span class="when" style="color:var(--coral)">⚑ ${e.flags.map((f) => esc(f.label)).join(' · ')}</span>` : '') +
       `<span class="when">Possibly the same site (${esc(e.confidence)} confidence, inferred): ${esc((e.basis || []).join(' · '))}</span>` +
       (e.source_url ? `<span class="when"><a href="${esc(e.source_url)}" target="_blank" rel="noopener">EPA ECHO report</a>${e.frs ? ' <span class="pro">· FRS ' + esc(e.frs) + '</span>' : ''}</span>` : '') +
       `</li>`).join('')}</ol><p class="note">MSHA and EPA don’t share an ID number, so these matches come from location plus coal-mining permit codes or shared names. Check the EPA report before relying on one.</p></details>` : '';
@@ -190,6 +204,9 @@
         <div class="stat"><span class="k">Quarters out of compliance</span><span class="v ${p.qtrs_noncompliance >= 4 ? 'hot' : ''}">${p.qtrs_noncompliance ?? '—'}<span class="muted-s"> / 12</span></span><span class="s">last 3 years</span></div>
         <div class="stat"><span class="k">Penalties on record</span><span class="v">${p.penalties != null ? usd(p.penalties) : '—'}</span><span class="s">EPA programs</span></div>
       </div>
+      ${flagsHtml(parse(p.flags, []))}
+      <div class="row"><span class="lbl">Last inspection on record</span><span>${esc(p.last_inspection || 'none on record')}</span></div>
+      <div class="row"><span class="lbl">Formal enforcement, 5 yrs</span><span>${p.formal_actions_5y ?? '—'}</span></div>
       <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA ECHO facility report</a>` : 'EPA ECHO'} · pulled ${esc(p.as_of)}</p>
       <p class="src pro">IDS: FRS ${esc(ids.frs)}</p>`);
   }

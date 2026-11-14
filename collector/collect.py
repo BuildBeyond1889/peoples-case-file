@@ -340,11 +340,19 @@ def echo_columns():
     global _ECHO_COLS
     if _ECHO_COLS is not None:
         return _ECHO_COLS
-    want = {'FacName', 'FacLat', 'FacLong', 'RegistryID', 'FacQtrsWithNC', 'FacTotalPenalties', 'FacSICDescs', 'FacSICCodes', 'FacNAICSCodes'}
+    want = {'FacName', 'FacLat', 'FacLong', 'RegistryID', 'FacQtrsWithNC', 'FacTotalPenalties', 'FacSICDescs', 'FacSICCodes', 'FacNAICSCodes',
+            # silence-detector inputs
+            'FacSNCFlg', 'FacFormalActionCount', 'FacInspectionCount', 'FacDaysLastInspection', 'FacDateLastInspection',
+            'FacDateLastFormalAction', 'FacDateLastPenalty', 'FacComplianceStatus', 'CWAComplianceStatus', 'CWAPermitTypes',
+            'CWAFormalActionCount', 'CWAInspectionCount', 'CWADaysLastInspection'}
     try:
         url, body = fetch(ECHO + '.metadata', {'output': 'JSON'})
         archive('echo', 'metadata.json', url, body)
         cols = json.loads(body).get('Results', {}).get('ResultColumns', [])
+        # also take any permit-status / expiration column ECHO offers, so expired permits can be flagged
+        extra = {c.get('ObjectName') for c in cols if re.search(r'Expir|PermitStatus|PermitStat', c.get('ObjectName') or '')}
+        log('ECHO permit-status/expiry columns offered:', sorted(extra))
+        want |= extra
         ids = [str(c.get('ColumnID')) for c in cols if c.get('ObjectName') in want]
         log('ECHO metadata columns matched:', [c.get('ObjectName') for c in cols if c.get('ObjectName') in want])
         _ECHO_COLS = ','.join(ids)
@@ -352,6 +360,36 @@ def echo_columns():
         log('ECHO metadata failed:', repr(e))
         _ECHO_COLS = ''
     return _ECHO_COLS
+
+
+def silence_flags(f):
+    """Silence detector: patterns where the records show problems but little or no response.
+    Each flag is a QUESTION worth asking, with its evidence, never an accusation."""
+    flags = []
+    qnc = _int(f.get('FacQtrsWithNC')) or 0
+    snc = (f.get('FacSNCFlg') or '').upper() == 'Y'
+    formal = _int(f.get('FacFormalActionCount'))
+    pen = _num(f.get('FacTotalPenalties')) or 0
+    days = _int(f.get('FacDaysLastInspection'))
+    last_insp = f.get('FacDateLastInspection')
+    if snc and formal == 0:
+        flags.append({'code': 'serious_no_enforcement', 'label': 'Serious noncompliance, no formal enforcement',
+                      'evidence': f'EPA flags significant noncompliance; formal enforcement actions in 5 years: 0'})
+    if qnc >= 4 and pen == 0:
+        flags.append({'code': 'violations_no_penalty', 'label': 'Repeated violations, no penalties',
+                      'evidence': f'Out of compliance {qnc} of the last 12 quarters; penalties on record: $0'})
+    if days is not None and days > 5 * 365:
+        flags.append({'code': 'not_inspected', 'label': 'Not inspected in over 5 years',
+                      'evidence': f'Last inspection on record: {last_insp or "unknown"} ({days // 365} years ago)'})
+    elif (days is None and not last_insp) and qnc >= 4:
+        flags.append({'code': 'no_inspection_record', 'label': 'No inspection on record',
+                      'evidence': f'No inspection date in EPA data, while out of compliance {qnc} of 12 quarters'})
+    for k, v in f.items():
+        if re.search(r'Expir|PermitStatus|PermitStat', k) and v and 'expired' in str(v).lower():
+            flags.append({'code': 'expired_permit', 'label': 'Permit marked expired',
+                          'evidence': f'{k}: {v}' + (f'; still out of compliance {qnc} of 12 quarters' if qnc else '')})
+            break
+    return flags
 
 
 def echo_facilities(area_id, bbox):
@@ -386,6 +424,11 @@ def echo_facilities(area_id, bbox):
                 # FacQtrsWithNC = number of quarters in non-compliance (recent 3 years), NOT a violation count.
                 'qtrs_noncompliance': _int(f.get('FacQtrsWithNC')),
                 'penalties': _num(f.get('FacTotalPenalties')),
+                'flags': silence_flags(f),
+                'flag_count': 0,
+                'last_inspection': f.get('FacDateLastInspection') or None,
+                'formal_actions_5y': _int(f.get('FacFormalActionCount')),
+                'snc': (f.get('FacSNCFlg') or '').upper() == 'Y',
                 'source': 'EPA ECHO',
                 'source_url': f'https://echo.epa.gov/detailed-facility-report?fid={frs}' if frs else None,
                 'as_of': TODAY,
@@ -394,6 +437,8 @@ def echo_facilities(area_id, bbox):
         if not facs:
             break
         page += 1
+    for x in feats:
+        x['properties']['flag_count'] = len(x['properties']['flags'])  # flat copy for map styling
     return feats
 
 
@@ -475,7 +520,10 @@ def link_mines_epa(mines, facilities, max_m=500):
         mp.setdefault('epa', []).append({
             'frs': fp['ids'].get('frs'), 'name': fp.get('name'), 'kind': fp.get('kind'),
             'qtrs_noncompliance': fp.get('qtrs_noncompliance'), 'penalties': fp.get('penalties'),
-            'source_url': fp.get('source_url'), 'distance_m': int(d), 'basis': basis, 'confidence': conf})
+            'source_url': fp.get('source_url'), 'distance_m': int(d), 'basis': basis, 'confidence': conf,
+            'flags': fp.get('flags', [])})
+        if fp.get('flags'):
+            mp['epa_flagged'] = True
         mp['has_epa'] = True
         fp['mine_link'] = {'mine_id': mp['ids']['msha_mine'], 'mine': mp.get('name'), 'basis': basis, 'confidence': conf}
         links += 1
@@ -516,7 +564,7 @@ def main():
         layers['mines'] = write_json('mines.geojson', {'type': 'FeatureCollection', 'features': feats})
     if facilities:
         layers['facilities'] = write_json('facilities.geojson', {'type': 'FeatureCollection', 'features': facilities})
-    report['echo'] = {'facilities': len(facilities)}
+    report['echo'] = {'facilities': len(facilities), 'silence_flagged': sum(1 for f in facilities if f['properties'].get('flags'))}
 
     write_json('index.json', {'pulled': TODAY, 'layers': layers, 'report': report})
     log('REPORT', json.dumps(report, indent=1))
