@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>People's Case File</title>
+<meta name="description" content="See what's around you: facilities, violations, water systems and who owns them, from public records, with sources.">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#15181d">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;800&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+<header class="top">
+  <div class="brand">People's Case File</div>
+  <form id="search" class="search" role="search">
+    <label for="q" class="vh">Address or place</label>
+    <input id="q" type="search" placeholder="Type an address or town" autocomplete="off">
+    <button type="submit">Go</button>
+  </form>
+  <div class="mode" role="group" aria-label="Mode">
+    <button type="button" id="mSimple" aria-pressed="true">Simple</button>
+    <button type="button" id="mPro" aria-pressed="false">Pro</button>
+  </div>
+</header>
+<main class="wrap">
+  <aside class="panel" id="layers">
+    <h2>Layers</h2>
+    <div id="layerList"></div>
+    <p class="fresh" id="fresh">Loading data…</p>
+  </aside>
+  <div id="map" aria-label="Map"></div>
+  <aside class="panel" id="detail">
+    <h2>Around here</h2>
+    <div id="detailBody"><p class="muted">Tap a dot on the map, or search an address.</p></div>
+  </aside>
+</main>
+<p class="foot">Public records only · every fact links to its source · not legal advice · <a href="#" id="about">How this works</a></p>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="app.js?v=2"></script>
+</body>
+</html>

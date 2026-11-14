@@ -1,0 +1,9 @@
+{
+  "name": "People's Case File",
+  "short_name": "Case File",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f3ef",
+  "theme_color": "#15181d",
+  "icons": []
+}

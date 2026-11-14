@@ -1,0 +1,6 @@
+{"type":"FeatureCollection","_note":"SAMPLE DATA ONLY. Invented names and numbers for layout. Replaced by collector output.","features":[
+{"type":"Feature","geometry":{"type":"Point","coordinates":[-83.672,43.025]},"properties":{"layer":"facilities","name":"Northgate Plating Co. (SAMPLE)","kind":"Metal finishing · air, water, haz. waste permits","violations":7,"penalties":41000,"operator":"Northgate Plating Co. (SAMPLE)","parent":"Sample Corp (SAMPLE)","parent_confidence":"medium","source":"SAMPLE","as_of":"n/a","ids":{"frs":"SAMPLE-0001"}}},
+{"type":"Feature","geometry":{"type":"Point","coordinates":[-83.705,42.998]},"properties":{"layer":"facilities","name":"Eastside Transfer Station (SAMPLE)","kind":"Waste transfer","violations":0,"source":"SAMPLE","as_of":"n/a","ids":{"frs":"SAMPLE-0002"}}},
+{"type":"Feature","geometry":{"type":"Point","coordinates":[-83.69,43.012]},"properties":{"layer":"water","name":"Sample City Water Dept. (SAMPLE)","kind":"Community water system","violations":4,"source":"SAMPLE","as_of":"n/a","ids":{"pwsid":"SAMPLE-MI0000"}}},
+{"type":"Feature","geometry":{"type":"Point","coordinates":[-83.66,43.0]},"properties":{"layer":"tri","name":"Old Foundry Site (SAMPLE)","kind":"Toxic release reporter","violations":2,"source":"SAMPLE","as_of":"n/a","ids":{"tri":"SAMPLE-T01"}}}
+]}
