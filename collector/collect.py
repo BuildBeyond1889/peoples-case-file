@@ -709,9 +709,9 @@ def rank_flags(facilities):
 
 # --------------------------------------------- Envirofacts: TRI + SDWIS ----
 EF = 'https://data.epa.gov/efservice/'
-EF_AREAS = {'harlan-ky': {'state': 'KY', 'county': 'Harlan', 'center': [-83.32, 36.86], 'label': 'Harlan County, KY',
+EF_AREAS = {'harlan-ky': {'state': 'KY', 'county': 'Harlan', 'center': [-83.32, 36.86], 'label': 'Harlan County, KY', 'box': [-83.65, 36.55, -82.85, 37.15],
                           'towns': ['HARLAN', 'CUMBERLAND', 'EVARTS', 'BENHAM', 'LYNCH', 'LOYALL', 'WALLINS CREEK', 'BAXTER', 'TOTZ', 'PUTNEY']},
-            'flint-mi': {'state': 'MI', 'county': 'Genesee', 'center': [-83.69, 43.02], 'label': 'Genesee County, MI (Flint)'}}
+            'flint-mi': {'state': 'MI', 'county': 'Genesee', 'center': [-83.69, 43.02], 'label': 'Genesee County, MI (Flint)', 'box': [-84.05, 42.75, -83.40, 43.25]}}
 
 
 def ef(path, name):
@@ -736,18 +736,25 @@ def tri(facilities):
             echo = by_frs.get(frs)
             if echo:
                 echo['properties']['tri'] = info      # same FRS ID: official join, high confidence
-            xy = None
+            xy, note = None, None
             try:
                 lo, la = float(lon), float(lat)
                 xy = [-abs(lo), la]
             except (TypeError, ValueError):
-                if echo:
-                    xy = echo['geometry']['coordinates']
+                pass
+            b = a['box']
+            if xy and not (b[0] <= xy[0] <= b[2] and b[1] <= xy[1] <= b[3]):
+                note = f'TRI location {lat}, {lon} is outside {a["label"]}; '
+                xy = None
+            if not xy and echo:
+                xy = echo['geometry']['coordinates']
+                note = (note or '') + 'shown at the EPA facility location (same FRS ID)'
             if not xy:
+                log('TRI: dropped (no usable location):', r.get('facility_name'), lat, lon)
                 continue
             feats.append({'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': xy}, 'properties': {
                 'name': r.get('facility_name'), 'kind': 'Toxics Release Inventory facility' + (' (closed)' if info['closed'] else ''),
-                'tri': info, 'city': r.get('city_name'),
+                'tri': info, 'city': r.get('city_name'), 'flags': [note] if note else [],
                 'source': 'EPA Toxics Release Inventory (Envirofacts)',
                 'source_url': f'https://echo.epa.gov/detailed-facility-report?fid={frs}' if frs else None,
                 'as_of': TODAY, 'ids': {'tri': r.get('tri_facility_id'), 'frs': frs}}})

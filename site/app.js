@@ -248,6 +248,7 @@
       <div class="row"><span class="lbl">Parent company (reported by the facility)</span><span>${esc(t.parent || 'none reported')}</span></div>
       ${t.foreign_parent ? `<div class="row"><span class="lbl">Foreign parent</span><span>${esc(t.foreign_parent)}</span></div>` : ''}
       ${t.parent ? researchHtml(t.parent, 'COMPANY') : ''}
+      ${parse(p.flags, []).length ? `<p class="flag">Data note: ${parse(p.flags, []).map(esc).join('; ')}</p>` : ''}
       <p class="note">Toxic release amounts by chemical and year are the next step for this layer.</p>
       <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA facility report</a>` : 'EPA Toxics Release Inventory'} · pulled ${esc(p.as_of)}</p>
       <p class="src pro">IDS: TRI ${esc(ids.tri)}${ids.frs ? ' · FRS ' + esc(ids.frs) : ''}</p>`);
