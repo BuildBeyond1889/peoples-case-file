@@ -1,36 +1,33 @@
 #!/usr/bin/env python3
-"""Probe 2: KY SOS name search -> profile officers; KY mine permit sample features."""
-import json, re, urllib.parse, urllib.request, http.cookiejar
+"""Probe 3: how the KY SOS profile loads officers; how search rows link to profiles."""
+import re, urllib.parse, urllib.request, http.cookiejar
 UA = 'PeoplesCaseFile/0.2 (public-records research; https://github.com/BuildBeyond1889/peoples-case-file)'
 op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-def get(url, data=None):
-    req = urllib.request.Request(url, data=data, headers={'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded'} if data else {'User-Agent': UA})
-    with op.open(req, timeout=120) as r:
+def get(url, data=None, ct='application/x-www-form-urlencoded'):
+    h = {'User-Agent': UA}
+    if data: h['Content-Type'] = ct
+    with op.open(urllib.request.Request(url, data=data, headers=h), timeout=120) as r:
         return r.geturl(), r.read().decode('utf-8', 'replace')
+u, prof = get('https://sosbes.sos.ky.gov/BusSearchNProfile/Profile.aspx?ctr=1053155')
+for m in re.finditer(r'<script[^>]*>(.*?)</script>', prof, re.S):
+    s = m.group(1)
+    if re.search(r'asmx|ajax|fetch\(|WebMethod|Officer|Representative|ctr', s, re.I):
+        print('--- inline script ---'); print(s[:4000])
+for src in re.findall(r'<script[^>]*src="([^"]+)"', prof):
+    print('script src', src)
+    if 'jquery' in src.lower() or 'bootstrap' in src.lower() or 'googletag' in src: continue
+    try:
+        u2, js = get(urllib.parse.urljoin(u, src))
+        for mm in re.finditer(r'.{0,300}(asmx|ajax|Officer|Representative).{0,500}', js, re.I):
+            print('   JS:', mm.group(0)[:800])
+    except Exception as e:
+        print('   fail', e)
+i = prof.find('Loading...')
+print('--- html near Loading ---'); print(prof[i - 2500:i + 600])
 S = 'https://sosbes.sos.ky.gov/BusSearchNProfile/search.aspx'
-for name in ['Bluegrass Natural Resources', 'Inmet Mining', 'Lone Mountain Processing']:
-    u, html = get(S)
-    form = {m.group(1): m.group(2) for m in re.finditer(r'<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', html)}
-    form.update({'ctl00$MainContent$ddlSearchBy': 'Business Name or Organization Number', 'ctl00$MainContent$txtSearch': name,
-                 'ctl00$MainContent$BSearch': 'Search'})
-    form.pop('ctl00$MainContent$cbActiveonly', None)
-    u, res = get(S, urllib.parse.urlencode(form).encode())
-    links = re.findall(r'href="([^"]*Profile\.aspx[^"]*)"[^>]*>([^<]+)', res)
-    print('\n###', name, u, len(res), 'links', links[:6])
-    if not links:
-        t = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' | ', res)); i = t.find(name.split()[0].upper())
-        print(t[max(0, i - 300):i + 900]); continue
-    href = urllib.parse.urljoin(S, links[0][0].replace('&amp;', '&'))
-    u, prof = get(href)
-    t = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' | ', prof))
-    i = t.find('General Information')
-    print(href); print(t[i:i + 3500])
-base = 'https://kygisserver.ky.gov/arcgis/rest/services/WGS84WM_Services/Ky_Permitted_Mine_Boundaries_WGS84WM/MapServer/0/query'
-q = {'where': "PER_NAME LIKE '%INMET%' OR PER_NAME LIKE '%BLUEGRASS NATURAL%'", 'outFields': '*', 'returnGeometry': 'false', 'f': 'json'}
-u, b = get(base + '?' + urllib.parse.urlencode(q))
-for f in json.loads(b).get('features', [])[:12]:
-    print(f['attributes'])
-q = {'where': '1=1', 'geometry': '-83.30,36.85,-83.25,36.90', 'geometryType': 'esriGeometryEnvelope', 'inSR': '4326', 'outSR': '4326',
-     'spatialRel': 'esriSpatialRelIntersects', 'outFields': 'PermitNo', 'returnGeometry': 'true', 'geometryPrecision': 5, 'f': 'geojson', 'resultRecordCount': 2}
-u, b = get(base + '?' + urllib.parse.urlencode(q))
-print('geojson sample', b[:600])
+u, html = get(S)
+form = {m.group(1): m.group(2) for m in re.finditer(r'<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', html)}
+form.update({'ctl00$MainContent$ddlSearchBy': 'Business Name or Organization Number', 'ctl00$MainContent$txtSearch': 'Bluegrass Natural Resources', 'ctl00$MainContent$BSearch': 'Search'})
+u, res = get(S, urllib.parse.urlencode(form).encode())
+i = res.find('BLUEGRASS NATURAL RESOURCES LLC')
+print('--- search row html ---'); print(res[i - 1500:i + 400])
