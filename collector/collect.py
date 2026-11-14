@@ -340,7 +340,7 @@ def echo_columns():
     global _ECHO_COLS
     if _ECHO_COLS is not None:
         return _ECHO_COLS
-    want = {'FacName', 'FacLat', 'FacLong', 'RegistryID', 'FacQtrsWithNC', 'FacTotalPenalties', 'FacSICDescs', 'FacNAICSCodes'}
+    want = {'FacName', 'FacLat', 'FacLong', 'RegistryID', 'FacQtrsWithNC', 'FacTotalPenalties', 'FacSICDescs', 'FacSICCodes', 'FacNAICSCodes'}
     try:
         url, body = fetch(ECHO + '.metadata', {'output': 'JSON'})
         archive('echo', 'metadata.json', url, body)
@@ -382,6 +382,7 @@ def echo_facilities(area_id, bbox):
             feats.append({'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': [lon, lat]}, 'properties': {
                 'name': f.get('FacName'),
                 'kind': f.get('FacSICDescs') or 'EPA-regulated facility',
+                'sic': f.get('FacSICCodes') or '', 'naics': f.get('FacNAICSCodes') or '',
                 # FacQtrsWithNC = number of quarters in non-compliance (recent 3 years), NOT a violation count.
                 'qtrs_noncompliance': _int(f.get('FacQtrsWithNC')),
                 'penalties': _num(f.get('FacTotalPenalties')),
@@ -411,6 +412,77 @@ def _num(v):
 
 
 # ---------------------------------------------------------------- main ----
+# ------------------------------------------------- mine <-> EPA linking ----
+STOP = {'mine', 'mines', 'mining', 'coal', 'llc', 'inc', 'co', 'corp', 'company', 'no', 'the', 'of', 'and',
+        'energy', 'resources', 'ky', 'prep', 'plant', 'surface', 'underground', 'strip', 'auger', 'job', 'site'}
+
+
+def tokens(*names):
+    out = set()
+    for n in names:
+        for t in re.findall(r'[a-z0-9]+', (n or '').lower()):
+            if len(t) > 2 and t not in STOP and not t.isdigit():
+                out.add(t)
+    return out
+
+
+def meters(a, b):
+    from math import radians, sin, cos, asin, sqrt
+    lon1, lat1, lon2, lat2 = map(radians, (a[0], a[1], b[0], b[1]))
+    h = sin((lat2 - lat1) / 2) ** 2 + cos(lat1) * cos(lat2) * sin((lon2 - lon1) / 2) ** 2
+    return 2 * 6371000 * asin(sqrt(h))
+
+
+def link_mines_epa(mines, facilities, max_m=500):
+    """Possible same-site matches between MSHA mines and EPA facilities.
+    No shared official ID exists between the two systems, so every match is INFERRED and labelled:
+    it needs location (within max_m) plus a coal-mining permit code or a shared distinctive name word."""
+    grid = {}
+    for m in mines:
+        x, y = m['geometry']['coordinates']
+        grid.setdefault((round(x, 2), round(y, 2)), []).append(m)
+    links = 0
+    for f in facilities:
+        fx, fy = f['geometry']['coordinates']
+        fp = f['properties']
+        coal = fp.get('sic', '').startswith('12') or ' 12' in ' ' + fp.get('sic', '') or '2121' in fp.get('naics', '') \
+            or 'coal' in (fp.get('kind') or '').lower()
+        ftok = tokens(fp.get('name'))
+        best = None
+        for dx in (-0.01, 0, 0.01):
+            for dy in (-0.01, 0, 0.01):
+                for m in grid.get((round(fx + dx, 2), round(fy + dy, 2)), []):
+                    d = meters((fx, fy), m['geometry']['coordinates'])
+                    if d > max_m:
+                        continue
+                    mp = m['properties']
+                    shared = ftok & tokens(mp.get('name'), mp.get('operator'), *[h.get('operator') for h in mp.get('history', [])])
+                    if not (coal or shared):
+                        continue
+                    basis = [f'{int(d)} m apart']
+                    if coal:
+                        basis.append('EPA lists it as coal mining')
+                    if shared:
+                        basis.append('shared name: ' + ', '.join(sorted(shared)[:3]))
+                    conf = 'medium' if (coal and (shared or d < 150)) else 'low'
+                    cand = (conf == 'medium', -d, m, basis, conf, d)
+                    if best is None or cand[:2] > best[:2]:
+                        best = cand
+        if not best:
+            continue
+        _, _, m, basis, conf, d = best
+        mp = m['properties']
+        mp.setdefault('epa', []).append({
+            'frs': fp['ids'].get('frs'), 'name': fp.get('name'), 'kind': fp.get('kind'),
+            'qtrs_noncompliance': fp.get('qtrs_noncompliance'), 'penalties': fp.get('penalties'),
+            'source_url': fp.get('source_url'), 'distance_m': int(d), 'basis': basis, 'confidence': conf})
+        mp['has_epa'] = True
+        fp['mine_link'] = {'mine_id': mp['ids']['msha_mine'], 'mine': mp.get('name'), 'basis': basis, 'confidence': conf}
+        links += 1
+    log(f'Mine<->EPA: {links} facilities linked to mines (inferred, labelled)')
+    return links
+
+
 def write_json(name, obj):
     os.makedirs(OUT, exist_ok=True)
     json.dump(obj, open(os.path.join(OUT, name), 'w'), separators=(',', ':'))
@@ -419,10 +491,9 @@ def write_json(name, obj):
 
 def main():
     layers, report = {}, {}
+    feats = []
     try:
         feats, families = msha(AREAS)
-        if feats:
-            layers['mines'] = write_json('mines.geojson', {'type': 'FeatureCollection', 'features': feats})
         write_json('families.json', families)
         report['msha'] = {'mines': len(feats), 'families': len(families)}
     except Exception as e:
@@ -436,6 +507,13 @@ def main():
         except Exception as e:
             log(f'ECHO {area_id} failed:', repr(e))
             report.setdefault('echo_errors', []).append(f'{area_id}: {e!r}')
+    if feats and facilities:
+        try:
+            report['mine_epa_links'] = link_mines_epa(feats, facilities)
+        except Exception as e:
+            log('Mine<->EPA linking failed:', repr(e))
+    if feats:
+        layers['mines'] = write_json('mines.geojson', {'type': 'FeatureCollection', 'features': feats})
     if facilities:
         layers['facilities'] = write_json('facilities.geojson', {'type': 'FeatureCollection', 'features': facilities})
     report['echo'] = {'facilities': len(facilities)}
