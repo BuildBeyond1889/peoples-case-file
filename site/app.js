@@ -300,7 +300,7 @@
   const normName = (n) => (n || '').toLowerCase().replace(/\b(llc|l\.l\.c|inc|incorporated|co|corp|corporation|company|ltd|lp|llp|the|of)\b\.?/g, ' ').match(/[a-z0-9]+/g)?.join(' ') || '';
   function moneyFor(names) {
     const recs = names.map((n) => money?.by_name?.[normName(n)]).filter(Boolean);
-    const agg = { contracts: 0, grants: 0, loans: 0, awards: [], similar: 0, pacs: [], cases: [], casesCount: 0, looked: recs.length, lobby: [], pay: [] };
+    const agg = { contracts: 0, grants: 0, loans: 0, awards: [], similar: 0, pacs: [], cases: [], casesCount: 0, looked: recs.length, lobby: [], pay: [], mentions: 0 };
     for (const r of recs) {
       for (const g of ['contracts', 'grants', 'loans']) {
         const x = r.usaspending?.[g]; if (!x) continue;
@@ -309,7 +309,15 @@
       }
       for (const c of r.fec || []) { agg.pacs.push({ ...c, matched: r.name }); agg.pay.push(...(c.itemized || []).map((x) => ({ ...x, pac: c.committee }))); }
       agg.lobby.push(...(r.lobbying || []).map((x) => ({ ...x, client: r.name })));
-      if (r.courts) { agg.casesCount += r.courts.count || 0; agg.cases.push(...(r.courts.cases || []).map((c) => ({ ...c, matched: r.name }))); }
+      if (r.courts) {
+        // Full-text search also finds dockets that merely MENTION the company (e.g. as one creditor among thousands).
+        // Only dockets whose case name contains the company name count as its own cases.
+        const nn = normName(r.name);
+        for (const c of r.courts.cases || []) {
+          const party = c.party ?? normName(c.case).includes(nn);
+          if (party) agg.cases.push({ ...c, matched: r.name }); else agg.mentions += 1;
+        }
+      }
     }
     agg.total = agg.contracts + agg.grants + agg.loans;
     agg.awards.sort((a, b) => (b.amount || 0) - (a.amount || 0));
@@ -430,7 +438,7 @@
         ${!money || !mo.looked ? kpi('Public money received', '<span class="empty">—</span>', 'contracts, loans, grants', money ? 'not looked up for this family yet' : 'not collected yet', 'emptyk')
           : kpi('Public money received', usd(mo.total), `contracts ${usd(mo.contracts)} · loans ${usd(mo.loans)} · grants ${usd(mo.grants)}`, 'USAspending · matched by name')}
         ${!courtsOn ? kpi('Court cases', '<span class="empty">—</span>', 'lawsuits, bankruptcies', 'needs a free CourtListener token', 'emptyk')
-          : kpi('Court cases', num(mo.casesCount), `${num(bk.length)} in bankruptcy courts`, 'CourtListener · matched by name', bk.length ? 'hotk' : '')}
+          : kpi('Court cases', num(mo.cases.length), `${num(bk.length)} bankruptcy cases · ${num(mo.mentions)} other dockets only mention the name`, 'CourtListener · company named as a party', bk.length ? 'hotk' : '')}
       </section>
       <section class="fp-main">
         <div class="fp-graph">
@@ -461,7 +469,7 @@
       ${(mo.awards.length || mo.cases.length) ? `<section class="fp-time"><h2 class="serif">Money and courts</h2>
         <p class="muted-s">Found by searching each company name. Counted only when the name matches exactly (ignoring LLC, Inc…); each award shows the recipient’s state.${mo.similar ? ' ' + num(mo.similar) + ' similar-name results were left out.' : ''} Check each record before relying on it.</p>
         ${mo.awards.length ? `<details open><summary>Federal money (${num(mo.awards.length)} largest awards)</summary><ol class="hist">${mo.awards.slice(0, 12).map((a) => `<li><b>${usd(a.amount)}</b> ${esc(a.group.replace(/s$/, ''))} · ${esc(a.agency || '')}<span class="when">${esc(a.recipient)}${a.state ? ' (' + esc(a.state) + ')' : ''} · ${esc(a.date || '')}${a.what ? ' · ' + esc(a.what) : ''} ${a.url ? `· <a href="${esc(a.url)}" target="_blank" rel="noopener">USAspending</a>` : ''}</span></li>`).join('')}</ol></details>` : ''}
-        ${mo.cases.length ? `<details open><summary>Court dockets (${num(mo.casesCount)} found, latest shown)</summary><ol class="hist">${mo.cases.slice(0, 12).map((c) => `<li><b>${esc(c.case)}</b>${c.bankruptcy ? ' <span class="hot">bankruptcy court</span>' : ''}<span class="when">${esc(c.court || c.court_id)} · filed ${esc(c.filed || '?')}${c.nature ? ' · ' + esc(c.nature) : ''} ${c.url ? `· <a href="${esc(c.url)}" target="_blank" rel="noopener">docket</a>` : ''}</span></li>`).join('')}</ol></details>` : ''}
+        ${mo.cases.length ? `<details open><summary>Court dockets naming these companies (${num(mo.cases.length)} of the latest searched; ${num(mo.mentions)} more only mention the name)</summary><ol class="hist">${mo.cases.slice(0, 12).map((c) => `<li><b>${esc(c.case)}</b>${c.bankruptcy ? ' <span class="hot">bankruptcy court</span>' : ''}<span class="when">${esc(c.court || c.court_id)} · filed ${esc(c.filed || '?')}${c.nature ? ' · ' + esc(c.nature) : ''} ${c.url ? `· <a href="${esc(c.url)}" target="_blank" rel="noopener">docket</a>` : ''}</span></li>`).join('')}</ol></details>` : ''}
       </section>` : ''}
       <section class="fp-time"><h2 class="serif">Who ran what, when</h2><p class="muted-s">Each bar is an operating company while this controller held it (MSHA controller records). Open bars are still running.</p>${timeline}</section>
       <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · USAspending, FEC, CourtListener (matched by name) · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>

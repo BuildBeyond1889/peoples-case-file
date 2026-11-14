@@ -943,6 +943,7 @@ def courtlistener(name, token):
         cases.append({'case': d.get('caseName'), 'court': d.get('court') or court, 'court_id': court, 'filed': d.get('dateFiled'),
                       'docket': d.get('docketNumber'), 'nature': d.get('suitNature'),
                       'bankruptcy': court.endswith('b'),
+                      'party': norm_name(name) in norm_name(d.get('caseName')),  # named in the case title, not just mentioned
                       'url': 'https://www.courtlistener.com' + d['docket_absolute_url'] if d.get('docket_absolute_url') else None})
     return {'count': data.get('count', len(cases)), 'cases': cases}
 

@@ -22,10 +22,22 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Decide full collect vs site-only deploy
+        id: mode
+        run: |
+          MODE=full
+          if [ "${{ github.event_name }}" = "push" ] && ! git diff --name-only HEAD~1 HEAD | grep -qE '^(collector/|\.github/)'; then MODE=site; fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"; echo "Mode: $MODE"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Reuse the live data (site-only change)
+        if: steps.mode.outputs.mode == 'site'
+        run: python collector/reuse_live.py
       - name: Run collector
+        if: steps.mode.outputs.mode == 'full'
         env:
           FEC_API_KEY: ${{ secrets.FEC_API_KEY }}
           COURTLISTENER_TOKEN: ${{ secrets.COURTLISTENER_TOKEN }}
@@ -48,7 +60,7 @@ jobs:
           path: site/data
           retention-days: 30
       - name: Archive raw snapshots to a monthly release (never in git)
-        if: always()
+        if: always() && steps.mode.outputs.mode == 'full'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
