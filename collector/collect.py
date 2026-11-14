@@ -28,6 +28,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -1082,6 +1083,134 @@ def money_and_courts(families, max_controllers=40, refresh_days=7, max_new_court
     return out
 
 
+GLEIF = 'https://api.gleif.org/api/v1/'
+GLEIF_EXCEPTIONS = {
+    'NATURAL_PERSONS': 'owned or controlled by one or more individuals (GLEIF does not name them)',
+    'NON_CONSOLIDATING': 'its parent does not consolidate it in financial statements',
+    'NO_KNOWN_PERSON': 'reports that no person or company controls it',
+    'NON_PUBLIC': 'parent kept private (company says disclosure is not allowed or would be harmful)',
+    'BINDING_LEGAL_COMMITMENTS': 'parent kept private (cites a legal commitment)',
+    'LEGAL_OBSTACLES': 'parent kept private (cites a legal obstacle)',
+    'DISCLOSURE_DETRIMENTAL': 'parent kept private (says disclosure would be harmful)',
+    'DETRIMENT_NOT_EXCLUDED': 'parent kept private (says harm cannot be ruled out)',
+    'CONSENT_NOT_OBTAINED': 'parent kept private (parent did not consent)',
+    'NO_LEI': 'parent exists but has no LEI of its own',
+}
+
+
+def gleif_get(path, params=None):
+    try:
+        return json.loads(fetch(GLEIF + path, params, headers={'Accept': 'application/vnd.api+json'}, timeout=60)[1])
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+
+
+def gleif_entity(d):
+    a = d.get('attributes', {})
+    e = a.get('entity', {})
+    addr = e.get('legalAddress', {}) or {}
+    hq = e.get('headquartersAddress', {}) or {}
+    return {'lei': d.get('id') or a.get('lei'), 'legal_name': (e.get('legalName') or {}).get('name'),
+            'country': addr.get('country'), 'region': addr.get('region'), 'hq_country': hq.get('country'),
+            'status': e.get('status'), 'category': e.get('category'), 'legal_form': (e.get('legalForm') or {}).get('id'),
+            'registered_at': (a.get('registration') or {}).get('initialRegistrationDate', '')[:10] or None,
+            'url': f"https://search.gleif.org/#/record/{d.get('id') or a.get('lei')}"}
+
+
+def gleif_lookup(name):
+    """Exact-name match only: GLEIF's suggestions are kept only when the normalized names are identical."""
+    want = norm_name(name)
+    j = gleif_get('fuzzycompletions', {'field': 'entity.legalName', 'q': name}) or {}
+    leis = []
+    for d in j.get('data', []):
+        v = (d.get('attributes') or {}).get('value', '')
+        lid = (((d.get('relationships') or {}).get('lei-records') or {}).get('data') or {}).get('id')
+        if lid and norm_name(v) == want:
+            leis.append(lid)
+    out = []
+    for lid in list(dict.fromkeys(leis))[:3]:
+        r = gleif_get(f'lei-records/{lid}')
+        if not r:
+            continue
+        ent = gleif_entity(r['data'])
+        for rel in ('direct', 'ultimate'):
+            p = gleif_get(f'lei-records/{lid}/{rel}-parent')
+            if p and p.get('data'):
+                ent[f'{rel}_parent'] = gleif_entity(p['data'])
+            else:
+                ex = gleif_get(f'lei-records/{lid}/{rel}-parent-reporting-exception')
+                at = ((ex or {}).get('data') or {}).get('attributes') or {}
+                code = at.get('reason') or at.get('exceptionReason')
+                if code:
+                    ent[f'{rel}_exception'] = {'code': code, 'plain': GLEIF_EXCEPTIONS.get(code, code.replace('_', ' ').lower())}
+        ch = gleif_get(f'lei-records/{lid}/direct-children', {'page[size]': 50})
+        if ch and ch.get('data'):
+            ent['children'] = [gleif_entity(c) for c in ch['data']]
+            ent['children_total'] = ((ch.get('meta') or {}).get('pagination') or {}).get('total', len(ent['children']))
+        out.append(ent)
+    return out
+
+
+def parents(families, max_controllers=80, ops_per=3, refresh_days=30):
+    """Corporate parents v1.
+    1. Same-name MSHA controller IDs (inferred: a company can sit under several controller IDs).
+    2. GLEIF legal-entity records (official LEI, home country, reported direct/ultimate parent or the reason none is reported).
+    SEC EDGAR (Exhibit 21 subsidiaries, Exhibit 95 mine lists) blocks GitHub's servers, so it is offered as research links."""
+    by_norm = {}
+    for f in families:
+        if (f.get('controller_type') or '').upper().startswith('P'):
+            continue  # people: never merged by name
+        by_norm.setdefault(norm_name(f['controller']), []).append(f)
+    groups = 0
+    for k, fs in by_norm.items():
+        if k and len(fs) > 1:
+            groups += 1
+            for f in fs:
+                f['same_name_ids'] = [{'id': g['controller_id'], 'name': g['controller'], 'mines': len(g.get('mines', []))}
+                                      for g in fs if g is not f]
+    prev = {}
+    try:
+        prev = json.loads(fetch(PAGES_URL + 'data/parents.json')[1]).get('by_name', {})
+    except Exception as e:
+        log('Parents: no previous run to reuse', repr(e))
+    cutoff = (dt.date.fromisoformat(TODAY) - dt.timedelta(days=refresh_days)).isoformat()
+    comp = [f for f in families if not (f.get('controller_type') or '').upper().startswith('P')]
+    comp = sorted(comp, key=lambda f: (-((f.get('viol') or {}).get('total') or 0), -len(f.get('mines', []))))[:max_controllers]
+    names = []
+    for f in comp:
+        names.append(f['controller'])
+        names += [o['name'] for o in f.get('operators', [])[:ops_per] if o.get('name')]
+    names = list({norm_name(n): n for n in reversed(names) if norm_name(n)}.values())[::-1]
+    out = {'as_of': TODAY, 'source': 'GLEIF Global LEI Index (api.gleif.org)', 'same_name_groups': groups,
+           'rules': 'GLEIF records are counted only when the legal name matches exactly after removing suffixes (LLC, Inc...). '
+                    'Parents are what the company itself reported to GLEIF; "no parent reported" shows the reason it gave.',
+           'sec': 'SEC EDGAR blocks our build server; use the EDGAR links (Exhibit 21 lists subsidiaries, Exhibit 95 lists mines by MSHA ID).',
+           'by_name': {}}
+    fails = 0
+    for n in names:
+        k = norm_name(n)
+        old = prev.get(k)
+        if old and old.get('checked', '') >= cutoff:
+            out['by_name'][k] = old
+            continue
+        try:
+            out['by_name'][k] = {'name': n, 'checked': TODAY, 'gleif': gleif_lookup(n)}
+        except Exception as e:
+            fails += 1
+            log('GLEIF failed for', n, repr(e))
+            if old:
+                out['by_name'][k] = old
+            if fails > 8:
+                log('Parents: too many GLEIF failures, stopping early')
+                break
+    hits = sum(1 for r in out['by_name'].values() if r.get('gleif'))
+    log(f'Parents: {groups} same-name controller groups; GLEIF {hits}/{len(out["by_name"])} names matched')
+    out['matched'] = hits
+    return out
+
+
 def write_json(name, obj):
     os.makedirs(OUT, exist_ok=True)
     json.dump(obj, open(os.path.join(OUT, name), 'w'), separators=(',', ':'))
@@ -1133,6 +1262,14 @@ def main():
         report['money_names'] = len(money['by_name'])
     except Exception as e:
         log('Money/courts failed:', repr(e))
+    if feats:
+        try:
+            par = parents(families)
+            write_json('parents.json', par)
+            write_json('families.json', families)  # now carries same_name_ids
+            report['parents'] = {'gleif_matched': par['matched'], 'names': len(par['by_name']), 'same_name_groups': par['same_name_groups']}
+        except Exception as e:
+            log('Parents failed:', repr(e))
     if feats and facilities:
         try:
             report['mine_epa_links'] = link_mines_epa(feats, facilities)

@@ -54,6 +54,7 @@
   const water = {};       // area id -> {label, systems}
   const letters = {};     // key -> letter spec
   let money = null;       // money.json: USAspending / FEC / CourtListener by normalized name
+  let parents = null;     // parents.json: GLEIF legal-entity records by normalized name
   const intro = $('detailBody').innerHTML;
 
   async function loadData() {
@@ -65,6 +66,7 @@
       try { for (const f of await getJSON('data/families.json')) families[f.controller_id] = f; } catch (e) {}
       try { for (const w of await getJSON('data/water.json')) water[w.area] = w; } catch (e) {}
       try { money = await getJSON('data/money.json'); } catch (e) {}
+      try { parents = await getJSON('data/parents.json'); } catch (e) {}
     } catch (e) {
       const s = await getJSON('data/sample.geojson');
       for (const L of LAYERS) byLayer[L.id] = { type: 'FeatureCollection', features: s.features.filter((f) => f.properties.layer === L.id) };
@@ -190,6 +192,7 @@
       ${epaHtml}
       ${histHtml}
       <div class="btns"><button type="button" class="btn" data-letter="${esc(regMineLetter(p, ids, v))}">Request this mine’s MSHA records →</button></div>
+      <p class="note">Owned by a public company? Its annual report lists the mine by ID (Exhibit 95): <a href="https://www.sec.gov/edgar/search/#/q=${encodeURIComponent(`"${ids.msha_mine}" OR "${String(ids.msha_mine).slice(0, 2)}-${String(ids.msha_mine).slice(2)}"`)}" target="_blank" rel="noopener">search SEC filings for ${esc(ids.msha_mine)}</a>.</p>
       ${flags.length ? `<p class="flag">Data note: ${flags.map(esc).join('; ')}</p>` : ''}
       <p class="src">SOURCE: <a href="${MSHA_LOOKUP}" target="_blank" rel="noopener">MSHA Mine Data Retrieval</a> · search mine ID ${esc(ids.msha_mine)} · pulled ${esc(p.as_of)}</p>
       <p class="src pro">IDS: MSHA mine ${esc(ids.msha_mine)}${ids.msha_controller ? ' · controller ' + esc(ids.msha_controller) : ''}</p>`);
@@ -298,6 +301,43 @@
   const activeAt = (p, d) => d === 'all' || ((p.start || '0000') <= d && (!p.end || p.end >= d));
 
   const normName = (n) => (n || '').toLowerCase().replace(/\b(llc|l\.l\.c|inc|incorporated|co|corp|corporation|company|ltd|lp|llp|the|of)\b\.?/g, ' ').match(/[a-z0-9]+/g)?.join(' ') || '';
+  const CC = { US: 'United States', GB: 'United Kingdom', CH: 'Switzerland', CA: 'Canada', AU: 'Australia', IN: 'India', CN: 'China', RU: 'Russia', DE: 'Germany', NL: 'Netherlands', LU: 'Luxembourg', IE: 'Ireland', KY: 'Cayman Islands', BM: 'Bermuda', VG: 'British Virgin Islands', SG: 'Singapore', HK: 'Hong Kong', PL: 'Poland', UA: 'Ukraine', ZA: 'South Africa', JP: 'Japan', CY: 'Cyprus', JE: 'Jersey', GG: 'Guernsey', IM: 'Isle of Man', PA: 'Panama', MH: 'Marshall Islands', BS: 'Bahamas', LI: 'Liechtenstein', MT: 'Malta', AE: 'United Arab Emirates', TR: 'Turkey', CO: 'Colombia', ID: 'Indonesia' };
+  const country = (c, r) => (c ? (CC[c] || c) : '') + (r && r.includes('-') && c === 'US' ? ' · ' + r.split('-')[1] : '');
+  // GLEIF records for a list of names (exact normalized-name matches made by the collector)
+  function leiFor(names) {
+    const out = [];
+    for (const n of names) for (const e of (parents?.by_name?.[normName(n)]?.gleif || [])) if (!out.some((x) => x.e.lei === e.lei)) out.push({ asName: n, e });
+    return out;
+  }
+  function entLine(e) {
+    return `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.legal_name || e.lei)}</a><span class="when">LEI ${esc(e.lei)}${e.country ? ' · registered in ' + esc(country(e.country, e.region)) : ''}${e.hq_country && e.hq_country !== e.country ? ' · HQ ' + esc(country(e.hq_country)) : ''}${e.status && e.status !== 'ACTIVE' ? ' · ' + esc(e.status.toLowerCase()) : ''}</span>`;
+  }
+  function parentsCard({ asName, e }) {
+    const up = (rel, label) => e[rel + '_parent']
+      ? `<li><span class="lbl2">${label}</span>${entLine(e[rel + '_parent'])}</li>`
+      : e[rel + '_exception'] ? `<li><span class="lbl2">${label}</span><b class="muted-b">None reported</b><span class="when">${esc(e[rel + '_exception'].plain)} (GLEIF reason: ${esc(e[rel + '_exception'].code)})</span></li>`
+      : `<li><span class="lbl2">${label}</span><b class="muted-b">Not stated</b></li>`;
+    const sameUltimate = e.ultimate_parent && e.direct_parent && e.ultimate_parent.lei === e.direct_parent.lei;
+    return `<div class="par-card"><p class="eyebrow">${esc(asName)}</p><div class="par-ent">${entLine(e)}${e.registered_at ? `<span class="when">LEI since ${esc(e.registered_at)}</span>` : ''}</div>
+      <ol class="hist par">${up('direct', 'Direct parent')}${sameUltimate ? '' : up('ultimate', 'Ultimate parent')}</ol>
+      ${e.children?.length ? `<details><summary>${num(e.children_total || e.children.length)} ${(e.children_total || e.children.length) === 1 ? 'company reports' : 'companies report'} it as their direct parent</summary><ol class="hist">${e.children.map((c) => `<li>${entLine(c)}</li>`).join('')}</ol></details>` : ''}</div>`;
+  }
+  function parentsHtml(f, opList, isPerson) {
+    const names = [isPerson ? null : f.controller, ...opList.map((o) => o.name)].filter(Boolean);
+    const recs = leiFor(names);
+    const same = f.same_name_ids || [];
+    const checked = names.filter((n) => parents?.by_name?.[normName(n)]).length;
+    const sec = (n) => `https://www.sec.gov/edgar/search/#/q=%22${encodeURIComponent(n)}%22`;
+    return `<section class="fp-time" id="fp-parents"><h2 class="serif">Who’s above them</h2>
+      <p class="muted-s">From GLEIF, the global register of legal entities (LEIs). Parents are what each company reported about itself. Counted only when the legal name matches exactly (ignoring LLC, Inc…). ${parents ? `${num(checked)} of ${num(names.length)} names in this family were checked${recs.length ? '' : '; none has an LEI'}.` : 'Not collected yet.'}</p>
+      ${recs.length ? `<div class="par-grid">${recs.map(parentsCard).join('')}</div>` : ''}
+      ${same.length ? `<div class="par-same"><h3 class="fp-sub">Same name, other MSHA controller IDs</h3><p class="muted-s">Inferred, medium confidence: identical names (ignoring LLC, Inc…). It may be one company recorded more than once, or a different company with the same name.</p><ol class="hist">${same.map((x) => `<li><a href="#family/${esc(x.id)}">${esc(x.name)}</a><span class="when">MSHA controller ${esc(x.id)} · ${num(x.mines)} mine${x.mines === 1 ? '' : 's'}</span></li>`).join('')}</ol></div>` : ''}
+      <div class="fp-two">
+        <div class="fp-empty"><b>SEC subsidiaries and mine lists: open the links</b><span>Public companies list their subsidiaries (Exhibit 21) and every mine by MSHA ID (Exhibit 95) in annual reports. SEC blocks our build server, so search EDGAR directly: ${names.slice(0, 4).map((n) => `<a href="${sec(n)}" target="_blank" rel="noopener">${esc(n)}</a>`).join(' · ')}</span></div>
+        <div class="fp-empty"><b>Not connected yet</b><span>State business registries (registered agents, officers, addresses), and owners of companies that report none.</span></div>
+      </div>
+    </section>`;
+  }
   function moneyFor(names) {
     const recs = names.map((n) => money?.by_name?.[normName(n)]).filter(Boolean);
     const agg = { contracts: 0, grants: 0, loans: 0, awards: [], similar: 0, pacs: [], cases: [], casesCount: 0, looked: recs.length, lobby: [], pay: [], mentions: 0 };
@@ -374,6 +414,7 @@
       const o = opList.find((x) => (x.id || x.name) === famState.sel.slice(2));
       panel = `<p class="eyebrow">WHY IT’S IN THIS FAMILY</p><h3 class="fp-ptitle">${esc(o.name)}</h3>
         <p class="muted-s">Operating company${o.id ? ' · MSHA operator ID ' + esc(o.id) : ''}</p>
+        ${leiFor([o.name]).map((x) => `<div class="par-ent">${entLine(x.e)}</div>`).join('')}
         <div class="fp-conf"><span>Confidence</span><b class="steel">High · agency record</b></div>
         <p class="muted-s">MSHA lists ${personLabel(f.controller, f.controller_type)} as the controller of this company’s mines for these periods:</p>
         <ol class="hist">${Object.values(o.mines).flatMap((m) => m.periods.map((p) => `<li><b>${esc(m.feat.properties.name)}</b><span class="when">controlled ${esc(p.start || '?')} → ${esc(p.end || 'now')} · MSHA Controller/Operator History</span></li>`)).join('')}</ol>`;
@@ -394,7 +435,9 @@
         <div class="fp-conf"><span>Confidence</span><b class="steel">High · agency records</b></div>
         <p class="muted-s">MSHA names this ${isPerson ? 'individual' : 'company'} as the controlling entity for ${num(allMines.length)} Harlan County mine${allMines.length === 1 ? '' : 's'}, run through ${num(opList.length)} operating compan${opList.length === 1 ? 'y' : 'ies'}. Every solid line is an MSHA controller record with dates.</p>
         <p class="muted-s">Click any company or mine to see the records behind it.</p>
-        <div class="fp-empty"><b>Not connected yet</b><span>Parent companies above this controller, the same company under other MSHA IDs, and inferred links from business registries (shared agents, officers, addresses).</span></div>
+        ${(() => { const l = leiFor([isPerson ? null : f.controller].filter(Boolean))[0]; const up = l && (l.e.ultimate_parent || l.e.direct_parent);
+          return l ? `<div class="fp-conf"><span>Above it (GLEIF)</span><b class="steel">${up ? esc(up.legal_name) + ' · ' + esc(country(up.country)) : 'No parent reported'}</b></div>` : ''; })()}
+        ${(f.same_name_ids || []).length ? `<p class="muted-s">${num(f.same_name_ids.length)} other MSHA controller ID${f.same_name_ids.length === 1 ? '' : 's'} share this exact name. <a href="#fp-parents">See who’s above them ↓</a></p>` : '<p class="muted-s"><a href="#fp-parents">See who’s above them ↓</a></p>'}
         ${researchHtml(f.controller, f.controller_type)}`;
     }
 
@@ -424,7 +467,7 @@
           <p class="eyebrow">CONTROLLER · ${esc((f.controller_type || 'unknown').toUpperCase())} · MSHA RECORDS</p>
           <h1 class="serif">${isPerson ? esc(f.controller) + ' <span class="muted-s" style="font-family:var(--sans);font-size:15px">(individual, as named in MSHA records)</span>' : esc(f.controller)}</h1>
           <p class="lede2">${num(allMines.length)} mine${allMines.length === 1 ? '' : 's'} pulled into one family from MSHA records · ${num(opList.length)} operating compan${opList.length === 1 ? 'y' : 'ies'} · ${esc(yr(M.first) || '?')}–${M.last ? esc(yr(M.last)) : 'now'}</p>
-          <div class="fp-ids"><span>MSHA controller ${esc(f.controller_id)}</span>${opList.slice(0, 4).map((o) => o.id ? `<span class="pro">operator ${esc(o.id)}</span>` : '').join('')}<span>LEI · not linked yet</span><span>State registry · not linked yet</span></div>
+          <div class="fp-ids"><span>MSHA controller ${esc(f.controller_id)}</span>${opList.slice(0, 4).map((o) => o.id ? `<span class="pro">operator ${esc(o.id)}</span>` : '').join('')}${(() => { const l = leiFor([isPerson ? null : f.controller].filter(Boolean)); return l.length ? l.map((x) => `<span>LEI ${esc(x.e.lei)}</span>`).join('') : `<span>LEI · ${parents ? 'none found' : 'not linked yet'}</span>`; })()}<span>State registry · not linked yet</span></div>
         </div>
         <div class="btns"><button type="button" class="btn" data-fpmap="__all">Show on the map</button><button type="button" class="btn primary" data-letter="${esc(famLetter)}">Request MSHA records</button></div>
       </section>
@@ -471,8 +514,9 @@
         ${mo.awards.length ? `<details open><summary>Federal money (${num(mo.awards.length)} largest awards)</summary><ol class="hist">${mo.awards.slice(0, 12).map((a) => `<li><b>${usd(a.amount)}</b> ${esc(a.group.replace(/s$/, ''))} · ${esc(a.agency || '')}<span class="when">${esc(a.recipient)}${a.state ? ' (' + esc(a.state) + ')' : ''} · ${esc(a.date || '')}${a.what ? ' · ' + esc(a.what) : ''} ${a.url ? `· <a href="${esc(a.url)}" target="_blank" rel="noopener">USAspending</a>` : ''}</span></li>`).join('')}</ol></details>` : ''}
         ${mo.cases.length ? `<details open><summary>Court dockets naming these companies (${num(mo.cases.length)} of the latest searched; ${num(mo.mentions)} more only mention the name)</summary><ol class="hist">${mo.cases.slice(0, 12).map((c) => `<li><b>${esc(c.case)}</b>${c.bankruptcy ? ' <span class="hot">bankruptcy court</span>' : ''}<span class="when">${esc(c.court || c.court_id)} · filed ${esc(c.filed || '?')}${c.nature ? ' · ' + esc(c.nature) : ''} ${c.url ? `· <a href="${esc(c.url)}" target="_blank" rel="noopener">docket</a>` : ''}</span></li>`).join('')}</ol></details>` : ''}
       </section>` : ''}
+      ${parentsHtml(f, opList, isPerson)}
       <section class="fp-time"><h2 class="serif">Who ran what, when</h2><p class="muted-s">Each bar is an operating company while this controller held it (MSHA controller records). Open bars are still running.</p>${timeline}</section>
-      <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · USAspending, FEC, CourtListener (matched by name) · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>
+      <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · USAspending, FEC, lobbying reports, CourtListener, GLEIF (matched by name) · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>
     </div>`;
   }
 
