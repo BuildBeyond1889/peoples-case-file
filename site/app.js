@@ -270,6 +270,200 @@
       <p class="src">SOURCE: ${esc(w.source)} · pulled ${esc(w.as_of)}</p>`);
   }
 
+
+  // ======================= Controller family page (full screen) =======================
+  const TODAY = new Date().toISOString().slice(0, 10);
+  const yr = (d) => (d || '').slice(0, 4);
+  function familyModel(cid) {
+    const f = families[cid]; if (!f) return null;
+    const ops = {};   // operator id -> {id, name, mines: {mineId: {feat, periods[]}}}
+    for (const m of f.mines || []) {
+      const feat = mineById[m.id]; if (!feat) continue;
+      const hist = parse(feat.properties.history, []);
+      for (const h of hist) {
+        if (h.controller_id !== cid) continue;
+        const o = ops[h.operator_id || h.operator] ||= { id: h.operator_id, name: h.operator || 'Unnamed operator', mines: {} };
+        const mm = o.mines[m.id] ||= { feat, periods: [] };
+        mm.periods.push({ start: h.ctl_start || h.op_start || '', end: h.ctl_end || '', op_start: h.op_start, op_end: h.op_end });
+      }
+    }
+    const periods = Object.values(ops).flatMap((o) => Object.values(o.mines).flatMap((m) => m.periods));
+    const first = periods.map((p) => p.start).filter(Boolean).sort()[0] || '';
+    const last = periods.some((p) => !p.end) ? '' : periods.map((p) => p.end).filter(Boolean).sort().pop() || '';
+    return { f, ops, first, last };
+  }
+  const activeAt = (p, d) => d === 'all' || ((p.start || '0000') <= d && (!p.end || p.end >= d));
+
+  let famState = { cid: null, asOf: 'all', sel: null };
+  function renderFamilyPage(cid, opts) {
+    const M = familyModel(cid);
+    const el = $('familyPage');
+    if (!M) { el.innerHTML = `<div class="fp-wrap"><p class="flag">No controller family found for ID ${esc(cid)}.</p><a class="btn" href="#">Back home</a></div>`; return; }
+    famState = { cid, asOf: opts?.asOf || 'all', sel: opts?.sel || null };
+    const { f } = M;
+    const v = f.viol || {};
+    const allMines = (f.mines || []).map((m) => mineById[m.id]).filter(Boolean);
+    const active = allMines.filter((x) => x.properties.status === 'Active').length;
+    const epaLinks = allMines.flatMap((x) => parse(x.properties.epa, []).map((e) => ({ ...e, mine: x })));
+    const highEpa = epaLinks.filter((e) => e.severity === 'high');
+    const worst = allMines.filter((x) => (parse(x.properties.fair, {}).per_inspection_pct ?? -1) >= 75).length;
+    const rated = allMines.filter((x) => parse(x.properties.fair, {}).per_inspection != null).length;
+    const paidPct = v.due > 0 ? Math.round((v.paid / v.due) * 100) : null;
+    const isPerson = (f.controller_type || '').toUpperCase().startsWith('P');
+    const opList = Object.values(M.ops);
+    const changes = allMines.filter((x) => parse(x.properties.history, []).length > 1).length;
+
+    // as-of year buttons
+    const years = [...new Set(opList.flatMap((o) => Object.values(o.mines).flatMap((m) => m.periods.map((p) => yr(p.start)))).filter(Boolean))].sort();
+    const pickYears = years.length <= 4 ? years : [0, 1, 2, 3].map((i) => years[Math.round((i * (years.length - 1)) / 3)]);
+    const asOfBtns = [['all', 'All time'], ...[...new Set(pickYears)].map((y) => [y + '-07-01', y]), [TODAY, 'Now']]
+      .map(([d, label]) => `<button type="button" data-asof="${d}" aria-pressed="${famState.asOf === d}">${esc(label)}</button>`).join('');
+
+    // graph: controller -> operators -> mines (as of)
+    const visOps = opList.map((o) => ({ ...o, vis: Object.entries(o.mines).filter(([, m]) => m.periods.some((p) => activeAt(p, famState.asOf))) }))
+      .filter((o) => o.vis.length).sort((a, b) => b.vis.length - a.vis.length);
+    const mineChip = (mid, m) => {
+      const p = m.feat.properties; const e = parse(p.epa, []);
+      const hi = e.some((x) => x.severity === 'high');
+      const cls = p.status === 'Active' ? 'act' : '';
+      return `<button type="button" class="fp-mine ${cls}" data-fpmine="${esc(mid)}" aria-pressed="${famState.sel === 'm:' + mid}">
+        <span class="nm">${esc(p.name)}</span><span class="ct">${num(p.citations || 0)} citations</span>
+        ${e.length ? `<span class="epa ${hi ? 'hi' : ''}">${hi ? '⚑ ' : ''}EPA site ${hi ? '· high priority' : ''}</span>` : ''}</button>`;
+    };
+    const graph = visOps.length ? visOps.map((o) => `
+      <div class="fp-op ${famState.sel === 'o:' + (o.id || o.name) ? 'sel' : ''}">
+        <button type="button" class="fp-ophead" data-fpop="${esc(o.id || o.name)}"><b>${esc(o.name)}</b><span class="muted-s">Operating company · MSHA record · ${num(o.vis.length)} mine${o.vis.length === 1 ? '' : 's'}</span></button>
+        <div class="fp-mines">${o.vis.map(([mid, m]) => mineChip(mid, m)).join('')}</div>
+      </div>`).join('') : `<p class="note">No mines under this controller on that date.</p>`;
+
+    // right panel
+    let panel = '';
+    if (famState.sel?.startsWith('o:')) {
+      const o = opList.find((x) => (x.id || x.name) === famState.sel.slice(2));
+      panel = `<p class="eyebrow">WHY IT’S IN THIS FAMILY</p><h3 class="fp-ptitle">${esc(o.name)}</h3>
+        <p class="muted-s">Operating company${o.id ? ' · MSHA operator ID ' + esc(o.id) : ''}</p>
+        <div class="fp-conf"><span>Confidence</span><b class="steel">High · agency record</b></div>
+        <p class="muted-s">MSHA lists ${personLabel(f.controller, f.controller_type)} as the controller of this company’s mines for these periods:</p>
+        <ol class="hist">${Object.values(o.mines).flatMap((m) => m.periods.map((p) => `<li><b>${esc(m.feat.properties.name)}</b><span class="when">controlled ${esc(p.start || '?')} → ${esc(p.end || 'now')} · MSHA Controller/Operator History</span></li>`)).join('')}</ol>`;
+    } else if (famState.sel?.startsWith('m:')) {
+      const mf = mineById[famState.sel.slice(2)]; const p = mf.properties; const mv = parse(p.viol, null);
+      const per = Object.values(M.ops).flatMap((o) => (o.mines[famState.sel.slice(2)]?.periods || []).map((x) => ({ ...x, op: o.name })));
+      panel = `<p class="eyebrow">MINE · ${esc((p.status || '').toUpperCase())}</p><h3 class="fp-ptitle">${esc(p.name)}</h3>
+        <div class="fp-conf"><span>Link to this controller</span><b class="steel">High · agency record</b></div>
+        <ol class="hist">${per.map((x) => `<li>Run by <b>${esc(x.op)}</b><span class="when">under this controller ${esc(x.start || '?')} → ${esc(x.end || 'now')}</span></li>`).join('')}</ol>
+        ${violStats(mv, 'at this mine')}
+        ${fairHtml(parse(p.fair, null))}
+        ${parse(p.epa, []).map((e) => `<div class="fp-epa ${e.severity === 'high' ? 'hi' : ''}"><b>${esc(e.name)}</b><span class="when">EPA site, possibly the same place (${esc(e.confidence)} confidence, inferred): ${esc((e.basis || []).join(' · '))}</span>
+          ${(e.permits || []).map((pm) => `<span class="when">Permit ${esc(pm.id)}: <span class="${pm.status_code === 'EXP' ? 'hot' : ''}">${esc(pm.status)}</span></span>`).join('')}
+          ${(e.flags || []).length ? `<span class="when hot">⚑ ${e.flags.map((x) => esc(x.label)).join(' · ')}</span><button type="button" class="linkbtn" data-letter="${esc(regFacilityLetter(e, parse(p.ids, {})))}">Draft a records request →</button>` : ''}</div>`).join('')}
+        <div class="btns"><button type="button" class="btn" data-fpmap="${esc(famState.sel.slice(2))}">Open on the map →</button></div>`;
+    } else {
+      panel = `<p class="eyebrow">WHY THESE ARE ONE FAMILY</p><h3 class="fp-ptitle">${personLabel(f.controller, f.controller_type)}</h3>
+        <div class="fp-conf"><span>Confidence</span><b class="steel">High · agency records</b></div>
+        <p class="muted-s">MSHA names this ${isPerson ? 'individual' : 'company'} as the controlling entity for ${num(allMines.length)} Harlan County mine${allMines.length === 1 ? '' : 's'}, run through ${num(opList.length)} operating compan${opList.length === 1 ? 'y' : 'ies'}. Every solid line is an MSHA controller record with dates.</p>
+        <p class="muted-s">Click any company or mine to see the records behind it.</p>
+        <div class="fp-empty"><b>Not connected yet</b><span>Parent companies above this controller, the same company under other MSHA IDs, and inferred links from business registries (shared agents, officers, addresses).</span></div>
+        ${researchHtml(f.controller, f.controller_type)}`;
+    }
+
+    // timeline (operators under this controller)
+    const yMin = +(yr(M.first) || new Date().getFullYear() - 10), yMax = new Date().getFullYear() + 1;
+    const pos = (d) => (((d ? +d.slice(0, 4) + (+d.slice(5, 7) - 1) / 12 : yMax) - yMin) / (yMax - yMin)) * 100;
+    const tl = opList.map((o) => {
+      const ps = Object.values(o.mines).flatMap((m) => m.periods);
+      const s0 = ps.map((p) => p.start).filter(Boolean).sort()[0];
+      const ongoing = ps.some((p) => !p.end);
+      const e0 = ongoing ? '' : ps.map((p) => p.end).filter(Boolean).sort().pop();
+      return { name: o.name, s0, e0, n: Object.keys(o.mines).length };
+    }).filter((t) => t.s0).sort((a, b) => a.s0.localeCompare(b.s0));
+    const ticks = []; for (let y = Math.ceil(yMin / 5) * 5; y < yMax; y += 5) ticks.push(y);
+    const timeline = `<div class="fp-tl"><div class="tlrow tlhead"><span></span><span class="tltrack ticks">${ticks.map((y) => `<span class="tick" style="left:${pos(y + '-01-01')}%">${y}</span>`).join('')}</span><span></span></div>
+      ${tl.map((t) => `<div class="tlrow"><span class="tlname">${esc(t.name)}</span><span class="tltrack"><span class="tlbar ${t.e0 ? '' : 'now'}" style="left:${pos(t.s0)}%;width:${Math.max(1, pos(t.e0) - pos(t.s0))}%" title="${esc(t.s0)} → ${esc(t.e0 || 'now')}"></span></span><span class="tlwhen">${esc(yr(t.s0))}–${t.e0 ? esc(yr(t.e0)) : 'now'} · ${t.n} mine${t.n === 1 ? '' : 's'}</span></div>`).join('')}</div>`;
+
+    const famLetter = regFamilyLetter(f, allMines);
+    const kpi = (k, val, sub, src, cls = '') => `<div class="fp-k ${cls}"><span class="k">${k}</span><span class="v">${val}</span><span class="s">${sub}</span><span class="src2">${src}</span></div>`;
+    const credit = allMines.filter((x) => { const fr = parse(x.properties.fair, {}); return fr.per_inspection_pct != null && fr.per_inspection_pct <= 25; });
+    const cleanEpa = epaLinks.filter((e) => e.qtrs_noncompliance === 0);
+
+    el.innerHTML = `<div class="fp-wrap">
+      <div class="fp-crumb"><a href="#">Home</a> / <a href="#map/harlan">Harlan County, KY</a> / <span>Controller family</span></div>
+      <section class="fp-head">
+        <div class="fp-title">
+          <p class="eyebrow">CONTROLLER · ${esc((f.controller_type || 'unknown').toUpperCase())} · MSHA RECORDS</p>
+          <h1 class="serif">${isPerson ? esc(f.controller) + ' <span class="muted-s" style="font-family:var(--sans);font-size:15px">(individual, as named in MSHA records)</span>' : esc(f.controller)}</h1>
+          <p class="lede2">${num(allMines.length)} mines pulled into one family from MSHA records · ${num(opList.length)} operating companies · ${esc(yr(M.first) || '?')}–${M.last ? esc(yr(M.last)) : 'now'}</p>
+          <div class="fp-ids"><span>MSHA controller ${esc(f.controller_id)}</span>${opList.slice(0, 4).map((o) => o.id ? `<span class="pro">operator ${esc(o.id)}</span>` : '').join('')}<span>LEI · not linked yet</span><span>State registry · not linked yet</span></div>
+        </div>
+        <div class="btns"><button type="button" class="btn" data-fpmap="__all">Show on the map</button><button type="button" class="btn primary" data-letter="${esc(famLetter)}">Request MSHA records</button></div>
+      </section>
+      <section class="fp-kpis" aria-label="Family totals">
+        ${kpi('Mines in family', num(allMines.length), `${num(active)} active now · ${num(opList.length)} companies`, 'MSHA · ' + esc(f.as_of))}
+        ${kpi('Safety citations', num(v.total || 0), `${num(v.last5 || 0)} in the last 5 years`, 'MSHA violations', (v.last5 || 0) > 0 ? '' : '')}
+        ${kpi('Serious (S&amp;S)', num(v.sig_sub || 0), 'likely to cause injury', 'MSHA violations')}
+        ${kpi('Penalties owed', usd(v.due || 0), paidPct == null ? '—' : `${paidPct}% paid (${usd(v.paid || 0)})`, 'MSHA assessments', paidPct != null && paidPct < 50 ? 'hotk' : '')}
+        ${kpi('EPA sites linked', num(epaLinks.length), `${num(highEpa.length)} high-priority flags`, 'EPA ECHO · inferred links', highEpa.length ? 'hotk' : '')}
+        ${kpi('Worst-quarter mines', rated ? num(worst) + '<span class="of"> / ' + num(rated) + '</span>' : '—', 'citations per inspection vs Harlan', 'MSHA inspections')}
+        ${kpi('Public money received', '<span class="empty">—</span>', 'contracts, PPP loans, grants', 'not collected yet', 'emptyk')}
+        ${kpi('Court cases', '<span class="empty">—</span>', 'lawsuits, bankruptcies', 'not collected yet', 'emptyk')}
+      </section>
+      <section class="fp-main">
+        <div class="fp-graph">
+          <div class="fp-ghead"><div><h2>Family graph</h2><span class="muted-s">Controller → operating companies → mines. Click anything to see why it’s here.</span></div>
+            <div class="fp-asof" role="group" aria-label="As of">${asOfBtns}</div></div>
+          <div class="fp-legend"><span><i class="ln solid"></i>MSHA record</span><span><i class="ln dash"></i>Inferred (EPA site match)</span><span><i class="dot" style="background:#E3A44E"></i>Active mine</span><span><i class="dot" style="background:#EE7D67"></i>High-priority EPA flag</span></div>
+          <button type="button" class="fp-root ${famState.sel ? '' : 'sel'}" data-fpsel="">${esc(f.controller)}<span class="muted-s">Controller · MSHA ${esc(f.controller_id)}</span></button>
+          <div class="fp-ops">${graph}</div>
+        </div>
+        <aside class="fp-panel" aria-live="polite">${panel}</aside>
+      </section>
+      <section class="fp-pats" aria-label="Patterns">
+        <article class="pat coral"><span class="eyebrow">LIABILITY PATTERN</span><h3>Operator changes: ${num(changes)} of ${num(allMines.length)} mines</h3>
+          <p>These mines changed operating company at least once. Whether liabilities were left behind needs bankruptcy and reclamation-bond records.</p><p class="emptynote">Bankruptcy + bond records: not collected yet</p></article>
+        <article class="pat amber"><span class="eyebrow">SILENCE DETECTOR</span><h3>${highEpa.length ? num(highEpa.length) + ' high-priority EPA site' + (highEpa.length === 1 ? '' : 's') : 'No high-priority EPA flags'}</h3>
+          ${highEpa.slice(0, 2).map((e) => `<p><b>${esc(e.name)}</b> · ${esc((e.flags || [])[0]?.label || '')}</p>`).join('') || '<p>No linked EPA site has a high-priority flag.</p>'}
+          ${highEpa.length ? `<button type="button" class="linkbtn" data-letter="${esc(regFacilityLetter(highEpa[0], parse(highEpa[0].mine.properties.ids, {})))}">Draft a records request →</button>` : ''}</article>
+        <article class="pat steel empty"><span class="eyebrow">MONEY TIMING · NOT PROOF</span><h3>Donations and lobbying</h3><p>Campaign donations and lobbying lined up against permits and enforcement.</p><p class="emptynote">FEC, state campaign finance, lobbying: not collected yet</p></article>
+        <article class="pat green"><span class="eyebrow">CREDIT WHERE IT’S DUE</span><h3>${credit.length ? num(credit.length) + ' mine' + (credit.length === 1 ? '' : 's') + ' in the best quarter' : 'No standout clean records yet'}</h3>
+          <p>${credit.length ? 'Fewer citations per inspection than 75% of Harlan mines: ' + credit.slice(0, 3).map((x) => esc(x.properties.name)).join(', ') + (credit.length > 3 ? '…' : '') + '.' : 'Mines with low citation rates will show here.'}${cleanEpa.length ? ' ' + num(cleanEpa.length) + ' linked EPA site' + (cleanEpa.length === 1 ? ' has' : 's have') + ' zero quarters out of compliance.' : ''}</p></article>
+      </section>
+      <section class="fp-time"><h2 class="serif">Who ran what, when</h2><p class="muted-s">Each bar is an operating company while this controller held it (MSHA controller records). Open bars are still running.</p>${timeline}</section>
+      <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>
+    </div>`;
+  }
+
+  function regFamilyLetter(f, mines) {
+    const ids = mines.map((x) => parse(x.properties.ids, {}).msha_mine).filter(Boolean);
+    const key = 'L' + (++letterSeq);
+    letters[key] = { to: AGENCIES.MSHA.to, law: AGENCIES.MSHA.law, subject: `FOIA request: MSHA records for controller ${f.controller} (ID ${f.controller_id})`,
+      facts: f.viol && f.viol.due > 0 ? [`MSHA data lists ${usd(f.viol.due)} in assessed penalties at mines under this controller, of which ${usd(f.viol.paid)} is recorded as paid.`] : [],
+      source: 'MSHA Open Government Data',
+      items: [`Legal Identity Reports (MSHA Form 2000-7) and any ownership or control records naming controller ID ${f.controller_id} (${f.controller}).`,
+        `Records showing the payment, delinquency and collection status of civil penalties assessed at mines under this controller, including any referrals for collection.`,
+        `A list of all mines MSHA associates with this controller, with the dates of control.`],
+      ids: ['MSHA controller ID ' + f.controller_id, ...ids.slice(0, 25).map((m) => 'mine ' + m), ids.length > 25 ? `and ${ids.length - 25} more mines` : null].filter(Boolean) };
+    return key;
+  }
+
+  $('familyPage').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-asof]'); if (a) return renderFamilyPage(famState.cid, { asOf: a.dataset.asof, sel: famState.sel });
+    const o = e.target.closest('[data-fpop]'); if (o) return renderFamilyPage(famState.cid, { asOf: famState.asOf, sel: 'o:' + o.dataset.fpop });
+    const m = e.target.closest('[data-fpmine]'); if (m) return renderFamilyPage(famState.cid, { asOf: famState.asOf, sel: 'm:' + m.dataset.fpmine });
+    const r = e.target.closest('[data-fpsel]'); if (r) return renderFamilyPage(famState.cid, { asOf: famState.asOf, sel: null });
+    const lt = e.target.closest('[data-letter]'); if (lt) { location.hash = '#map'; pendingMap = () => showLetter(lt.dataset.letter); return; }
+    const mp = e.target.closest('[data-fpmap]');
+    if (mp) {
+      const id = mp.dataset.fpmap;
+      const fam = families[famState.cid];
+      pendingMap = () => {
+        if (id === '__all') {
+          const pts = (fam.mines || []).map((x) => mineById[x.id]?.geometry.coordinates).filter(Boolean);
+          if (pts.length) { const b = pts.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(pts[0], pts[0])); map.fitBounds(b, { padding: 60, maxZoom: 13 }); }
+        } else { const f = mineById[id]; if (f) { map.flyTo({ center: f.geometry.coordinates, zoom: 13 }); showMine(f.properties); } }
+      };
+      location.hash = '#map';
+    }
+  });
+
   // ---- Fair comparisons
   function fairHtml(f) {
     if (!f || (!f.per_inspection && !f.per_100k_tons)) return f ? `<p class="note">Not enough inspections or production on record (2000 on) to compare this mine fairly.</p>` : '';
@@ -377,7 +571,7 @@
     const lt = e.target.closest('[data-letter]');
     if (lt) return showLetter(lt.dataset.letter);
     const fam = e.target.closest('[data-fam]');
-    if (fam) return showFamily(fam.dataset.fam);
+    if (fam) { location.hash = '#family/' + encodeURIComponent(fam.dataset.fam); return; }
     const mine = e.target.closest('[data-mine]');
     if (mine && mineById[mine.dataset.mine]) {
       const f = mineById[mine.dataset.mine];
@@ -419,6 +613,7 @@
   let pro = false; try { pro = localStorage.getItem('pcfPro') === '1'; } catch (e) {}
   setMode(pro);
 
+  let pendingMap = null;
   let markReady; const ready = new Promise((r) => (markReady = r));
   map.on('load', () => loadData().then(markReady, markReady));
 
@@ -427,11 +622,15 @@
   async function route() {
     const h = location.hash.replace(/^#/, '');
     const onMap = h.startsWith('map');
-    document.body.classList.toggle('on-home', !onMap);
+    const onFam = h.startsWith('family/');
+    document.body.classList.toggle('on-home', !onMap && !onFam);
+    document.body.classList.toggle('on-family', onFam);
+    if (onFam) { window.scrollTo(0, 0); await ready; renderFamilyPage(decodeURIComponent(h.split('/')[1]), { asOf: 'all' }); return; }
     if (!onMap) { window.scrollTo(0, 0); return; }
     requestAnimationFrame(() => map.resize());
     const sub = h.split('/')[1];
     if (PLACES[sub]) map.jumpTo(PLACES[sub]);
+    if (pendingMap) { await ready; const fn = pendingMap; pendingMap = null; fn(); }
     if (sub === 'flags') {
       await ready;
       const cb = $('flagOnly'); if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
