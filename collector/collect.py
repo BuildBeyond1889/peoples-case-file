@@ -762,7 +762,16 @@ def sdwis():
     out = []
     cutoff = str(int(TODAY[:4]) - 5) + TODAY[4:]
     for aid, a in EF_AREAS.items():
-        areas = ef(f"GEOGRAPHIC_AREA/STATE_SERVED/{a['state']}/COUNTY_SERVED/{a['county']}/JSON", f'sdwis-geo-{aid}.json')
+        areas = []
+        for cty in (a['county'], a['county'].upper(), a['county'] + ' County', a['county'].upper() + ' COUNTY'):
+            areas = ef(f"GEOGRAPHIC_AREA/STATE_SERVED/{a['state']}/COUNTY_SERVED/{urllib.parse.quote(cty)}/JSON", f'sdwis-geo-{aid}.json')
+            if areas:
+                break
+        if not areas:
+            # some states record city, not county: sample what this state uses so it can be fixed
+            sample = ef(f"GEOGRAPHIC_AREA/STATE_SERVED/{a['state']}/rows/0:400/JSON", f'sdwis-geo-sample-{aid}.json')
+            log(f"SDWIS {aid}: no rows for county; sample counties:", sorted({str(r.get('county_served')) for r in sample})[:40])
+            log(f"SDWIS {aid}: sample cities:", sorted({str(r.get('city_served')) for r in sample if 'ARLAN' in str(r.get('city_served')).upper() or 'ARLAN' in str(r.get('county_served')).upper()}))
         pwsids = sorted({r['pwsid'] for r in areas if r.get('pws_activity_code') == 'A' and r.get('pws_type_code') == 'CWS'})  # community systems (homes)
         systems = []
         for pid in pwsids:
@@ -852,6 +861,12 @@ def main():
     report['echo'] = {'facilities': len(facilities), 'silence_flagged': sum(1 for f in facilities if f['properties'].get('flags')),
                       'high_severity': sum(1 for f in facilities if f['properties'].get('flag_level') == 2)}
     report['tri'] = len(tri_feats)
+    codes = {}
+    for f in facilities:
+        for fl in f['properties'].get('flags', []):
+            codes[fl['code']] = codes.get(fl['code'], 0) + 1
+    report['flag_codes'] = codes
+    report['expired_examples'] = [f['properties']['name'] for f in facilities if any(fl['code'] == 'expired_permit' for fl in f['properties'].get('flags', []))][:10]
 
     write_json('index.json', {'pulled': TODAY, 'layers': layers, 'report': report})
     log('REPORT', json.dumps(report, indent=1))
