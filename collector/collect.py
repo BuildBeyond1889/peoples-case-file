@@ -709,7 +709,8 @@ def rank_flags(facilities):
 
 # --------------------------------------------- Envirofacts: TRI + SDWIS ----
 EF = 'https://data.epa.gov/efservice/'
-EF_AREAS = {'harlan-ky': {'state': 'KY', 'county': 'Harlan', 'center': [-83.32, 36.86], 'label': 'Harlan County, KY'},
+EF_AREAS = {'harlan-ky': {'state': 'KY', 'county': 'Harlan', 'center': [-83.32, 36.86], 'label': 'Harlan County, KY',
+                          'towns': ['HARLAN', 'CUMBERLAND', 'EVARTS', 'BENHAM', 'LYNCH', 'LOYALL', 'WALLINS CREEK', 'BAXTER', 'TOTZ', 'PUTNEY']},
             'flint-mi': {'state': 'MI', 'county': 'Genesee', 'center': [-83.69, 43.02], 'label': 'Genesee County, MI (Flint)'}}
 
 
@@ -774,6 +775,15 @@ def sdwis():
             log(f"SDWIS {aid}: sample cities:", sorted({str(r.get('city_served')) for r in sample if 'ARLAN' in str(r.get('city_served')).upper() or 'ARLAN' in str(r.get('county_served')).upper()}))
         log(f"SDWIS {aid}: {len(areas)} area rows; activity/type mix:", sorted({(r.get('pws_activity_code'), r.get('pws_type_code')) for r in areas}))
         pwsids = sorted({r['pwsid'] for r in areas if r.get('pws_activity_code') == 'A' and r.get('pws_type_code') == 'CWS'})  # community systems (homes)
+        basis = 'county served (EPA SDWIS)'
+        if not pwsids and a.get('towns'):
+            # Kentucky's active systems often lack a county-served record; fall back to the system's listed city
+            for town in a['towns']:
+                for w in ef(f"WATER_SYSTEM/STATE_CODE/{a['state']}/CITY_NAME/{urllib.parse.quote(town)}/JSON", f"sdwis-city-{aid}-{town.replace(' ', '_')}.json"):
+                    if w.get('pws_activity_code') == 'A' and w.get('pws_type_code') == 'CWS':
+                        pwsids.append(w['pwsid'])
+            pwsids = sorted(set(pwsids))
+            basis = "system's listed city is in the county (county-served records missing)"
         systems = []
         for pid in pwsids:
             ws = ef(f'WATER_SYSTEM/PWSID/{pid}/JSON', f'sdwis-ws-{pid}.json')
@@ -796,7 +806,7 @@ def sdwis():
                 'latest': max((day(x) for x in v), default=None),
             })
         systems.sort(key=lambda s: (-(s['health_last5']), -(s['health_based']), -(s['population'] or 0)))
-        out.append({'area': aid, 'label': a['label'], 'center': a['center'], 'systems': systems,
+        out.append({'area': aid, 'label': a['label'], 'center': a['center'], 'systems': systems, 'basis': basis,
                     'source': 'EPA Safe Drinking Water Information System (Envirofacts)', 'as_of': TODAY})
         log(f"SDWIS {aid}: {len(systems)} active systems")
     feats = [{'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': o['center']}, 'properties': {

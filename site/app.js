@@ -258,7 +258,7 @@
     show(`
       <p class="eyebrow">DRINKING WATER · ${esc(w.label.toUpperCase())}</p>
       <h2 class="card-title">${num(w.systems.length)} community water systems</h2>
-      <p class="muted-s">Systems that serve homes here, sorted by health-based violations in the last 5 years.</p>
+      <p class="muted-s">Systems that serve homes here, sorted by health-based violations in the last 5 years.${w.basis ? ' Matched by: ' + esc(w.basis) + '.' : ''}</p>
       <ul class="mines-list">${w.systems.map((sy) => `<li><div class="wsys">
         <b>${esc(sy.name)}</b> <span class="count">${sy.population ? num(sy.population) + ' people' : ''}</span>
         <span class="when"><span class="${sy.health_last5 ? 'hot' : ''}">${num(sy.health_last5)} health-based violations (5 yrs)</span> · ${num(sy.violations)} violations on record${sy.lead_copper ? ' · <span class="warm">' + num(sy.lead_copper) + ' under the Lead and Copper Rule</span>' : ''}${sy.open ? ' · ' + num(sy.open) + ' not yet resolved' : ''}</span>
