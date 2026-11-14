@@ -11,6 +11,7 @@
   const MSHA_LOOKUP = 'https://www.msha.gov/mine-data-retrieval-system';
 
   const LAYERS = [
+    { id: 'kypermits', name: 'Kentucky mine permit areas', tag: 'KY DMP', on: false, poly: true },
     { id: 'mines', name: 'Mines + who controls them', tag: 'MSHA', on: true },
     { id: 'facilities', name: 'EPA-regulated facilities', tag: 'ECHO', on: true },
     { id: 'water', name: 'Drinking water systems', tag: 'SDWIS', on: true },
@@ -55,6 +56,7 @@
   const letters = {};     // key -> letter spec
   let money = null;       // money.json: USAspending / FEC / CourtListener by normalized name
   let parents = null;     // parents.json: GLEIF legal-entity records by normalized name
+  let registry = null;    // registry.json: Kentucky Secretary of State records by normalized name
   const intro = $('detailBody').innerHTML;
 
   async function loadData() {
@@ -67,6 +69,7 @@
       try { for (const w of await getJSON('data/water.json')) water[w.area] = w; } catch (e) {}
       try { money = await getJSON('data/money.json'); } catch (e) {}
       try { parents = await getJSON('data/parents.json'); } catch (e) {}
+      try { registry = await getJSON('data/registry.json'); } catch (e) {}
     } catch (e) {
       const s = await getJSON('data/sample.geojson');
       for (const L of LAYERS) byLayer[L.id] = { type: 'FeatureCollection', features: s.features.filter((f) => f.properties.layer === L.id) };
@@ -81,6 +84,14 @@
       if (!L.count) L.on = false;
       map.addSource(L.id, { type: 'geojson', data });
       const isMine = L.id === 'mines';
+      if (L.poly) {
+        map.addLayer({ id: L.id, type: 'fill', source: L.id, layout: { visibility: L.on ? 'visible' : 'none' },
+          paint: { 'fill-color': ['case', ['==', ['get', 'flag'], 'ACT'], '#E3A44E', '#86B6CC'], 'fill-opacity': 0.08 } });
+        map.addLayer({ id: L.id + '-line', type: 'line', source: L.id, layout: { visibility: L.on ? 'visible' : 'none' },
+          paint: { 'line-color': ['case', ['==', ['get', 'flag'], 'ACT'], '#E3A44E', '#5E7F8F'], 'line-width': 0.8, 'line-opacity': 0.7 } });
+        map.on('click', L.id, (e) => { if (map.queryRenderedFeatures(e.point).some((f) => f.layer.type === 'circle')) return; showPermit(e.features[0].properties); });
+        continue;
+      }
       map.addLayer({
         id: L.id, type: 'circle', source: L.id,
         ...(L.id === 'facilities' ? { filter: ['!', ['has', 'mine_link']] } : {}), // linked facilities show on their mine's card
@@ -124,6 +135,7 @@
     $('layerList').addEventListener('change', (e) => {
       const id = e.target.dataset.l; if (!id) return;
       map.setLayoutProperty(id, 'visibility', e.target.checked ? 'visible' : 'none');
+      if (map.getLayer(id + '-line')) map.setLayoutProperty(id + '-line', 'visibility', e.target.checked ? 'visible' : 'none');
     });
   }
 
@@ -169,11 +181,13 @@
     const epaHtml = epa.length ? `<details open><summary>EPA records at this site (${epa.length})</summary><ol class="hist">${epa.map((e) =>
       `<li><b>${esc(e.name)}</b> <span class="muted-s">${esc(e.kind || '')}</span>` +
       `<br>${e.qtrs_noncompliance != null ? `<span class="${e.qtrs_noncompliance >= 4 ? 'hot' : ''}">${esc(e.qtrs_noncompliance)} of last 12 quarters out of compliance</span>` : 'Compliance: not reported'}${e.penalties ? ' · penalties ' + usd(e.penalties) : ''}` +
-      (e.permits && e.permits.length ? e.permits.map((pm) => `<span class="when">Water permit ${esc(pm.id)}: <span class="${pm.status_code === 'EXP' ? 'hot' : ''}">${esc(pm.status)}</span>${pm.expiration ? ' · expires/expired ' + esc(pm.expiration) : ''}${pm.effluent_qtrs ? ' · discharge limits exceeded ' + esc(pm.effluent_qtrs) + ' of 12 quarters' : ''}</span>`).join('') : '') +
+      (e.permits && e.permits.length ? e.permits.map((pm) => `<span class="when">Water permit ${esc(pm.id)}: <span class="${pm.status_code === 'EXP' ? 'hot' : ''}">${esc(pm.status)}</span>${pm.expiration ? ' · expires/expired ' + esc(pm.expiration) : ''}${pm.effluent_qtrs ? ' · discharge limits exceeded ' + esc(pm.effluent_qtrs) + ' of 12 quarters' : ''}</span>` +
+        (pm.exceed?.exceedances ? `<span class="when hot">Over its limits ${num(pm.exceed.exceedances)}× in 3 yrs · worst: ${esc(pm.exceed.parameters[0]?.name || '')} ${pct(Math.max(...pm.exceed.parameters.map((x) => x.max_pct)))} over</span>` : '') +
+        (pm.informal?.last5 >= 3 && !pm.formal?.last5 ? `<span class="when hot">${num(pm.informal.last5)} warning letters in 5 yrs, no formal action</span>` : '')).join('') : '') +
       (e.tri && e.tri.parent ? `<span class="when">Parent company reported to EPA (TRI): ${esc(e.tri.parent)}</span>` : '') +
       (e.flags && e.flags.length ? `<span class="when" style="color:var(--coral)">⚑ ${e.severity ? esc(e.severity.toUpperCase()) + ' PRIORITY · ' : ''}${e.flags.map((f) => esc(f.label)).join(' · ')}</span>` +
         `<span class="when"><button type="button" class="linkbtn" data-letter="${esc(regFacilityLetter(e, ids))}">Draft a records request about this permit →</button></span>` : '') +
-      `<span class="when">Possibly the same site (${esc(e.confidence)} confidence, inferred): ${esc((e.basis || []).join(' · '))}</span>` +
+      `<span class="when">${e.confidence === 'high' ? 'Same site (high confidence, state permit record)' : 'Possibly the same site (' + esc(e.confidence) + ' confidence, inferred)'}: ${esc((e.basis || []).join(' · '))}</span>` +
       (e.source_url ? `<span class="when"><a href="${esc(e.source_url)}" target="_blank" rel="noopener">EPA ECHO report</a>${e.frs ? ' <span class="pro">· FRS ' + esc(e.frs) + '</span>' : ''}</span>` : '') +
       `</li>`).join('')}</ol><p class="note">MSHA and EPA don’t share an ID number, so these matches come from location plus coal-mining permit codes or shared names. Check the EPA report before relying on one.</p></details>` : '';
     const histHtml = hist.length ? `<details ${hist.length <= 4 ? 'open' : ''}><summary>Who ran it, who controlled it (${hist.length})</summary><ol class="hist">${hist.slice().reverse().map((h) =>
@@ -191,6 +205,7 @@
       ${fam ? `<div class="btns"><button type="button" class="btn primary" data-fam="${esc(fam.controller_id)}">Pull the curtain on this controller →</button></div>` : ''}
       ${epaHtml}
       ${histHtml}
+      ${kyPermitsHtml(parse(p.ky_permits, []))}
       <div class="btns"><button type="button" class="btn" data-letter="${esc(regMineLetter(p, ids, v))}">Request this mine’s MSHA records →</button></div>
       <p class="note">Owned by a public company? Its annual report lists the mine by ID (Exhibit 95): <a href="https://www.sec.gov/edgar/search/#/q=${encodeURIComponent(`"${ids.msha_mine}" OR "${String(ids.msha_mine).slice(0, 2)}-${String(ids.msha_mine).slice(2)}"`)}" target="_blank" rel="noopener">search SEC filings for ${esc(ids.msha_mine)}</a>.</p>
       ${flags.length ? `<p class="flag">Data note: ${flags.map(esc).join('; ')}</p>` : ''}
@@ -233,17 +248,62 @@
         <div class="stat"><span class="k">Penalties on record</span><span class="v">${p.penalties != null ? usd(p.penalties) : '—'}</span><span class="s">EPA programs</span></div>
       </div>
       ${flagsHtml(flags, '', p.severity, key)}
-      ${permits.map((pm) => `<div class="row"><span class="lbl">Water permit ${esc(pm.id)}</span><span class="${pm.status_code === 'EXP' ? 'hot' : ''}">${esc(pm.status)}${pm.expiration ? ' · ' + esc(pm.expiration) : ''}</span></div>` +
-        (pm.effluent_qtrs != null ? `<div class="row"><span class="lbl">Last 12 quarters</span><span>pollution limits exceeded: ${esc(pm.effluent_qtrs)} · reporting problems: ${esc(pm.reporting_qtrs || 0)}</span></div>` : '') +
-        (pm.water_body ? `<div class="row"><span class="lbl">Discharges to</span><span>${esc(pm.water_body)}</span></div>` : '')).join('')}
+      ${permits.map(permitHtml).join('')}
+      ${kyPermitsHtml(parse(p.ky_permits, []))}
       ${triInfo && triInfo.parent ? `<div class="row"><span class="lbl">Parent company (reported to EPA TRI)</span><span>${esc(triInfo.parent)}${triInfo.foreign_parent ? ' · foreign parent ' + esc(triInfo.foreign_parent) : ''}</span></div>` : ''}
-      <div class="row"><span class="lbl">Last inspection on record</span><span>${esc(p.last_inspection || 'none on record')}</span></div>
+      <div class="row"><span class="lbl">Last inspection, any EPA program</span><span>${esc(p.last_inspection || 'none on record')}</span></div>
       <div class="row"><span class="lbl">Formal enforcement, 5 yrs</span><span>${p.formal_actions_5y ?? '—'}</span></div>
-      ${link ? `<div class="btns"><button type="button" class="btn" data-mine="${esc(link.mine_id)}">Possibly the same site as mine: ${esc(link.mine)} →</button></div>` : ''}
-      <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA ECHO facility report</a>` : 'EPA ECHO'} · ICIS-NPDES permits · pulled ${esc(p.as_of)}</p>
+      ${link ? `<div class="btns"><button type="button" class="btn" data-mine="${esc(link.mine_id)}">${link.confidence === 'high' ? 'Same Kentucky mine permit as' : 'Possibly the same site as'} mine: ${esc(link.mine)} →</button></div>` : ''}
+      <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA ECHO facility report</a>` : 'EPA ECHO'} · ICIS-NPDES permits, inspections and enforcement · ECHO effluent charts · pulled ${esc(p.as_of)}</p>
       <p class="src pro">IDS: FRS ${esc(ids.frs)}${permits.length ? ' · NPDES ' + permits.map((x) => esc(x.id)).join(', ') : ''}${triInfo ? ' · TRI ' + esc(triInfo.tri_id) : ''}</p>`);
   }
 
+  const pct = (v) => num(Math.round(v)) + '%';
+  function permitHtml(pm) {
+    const ex = pm.exceed, ins = pm.inspections || {}, inf = pm.informal || {}, fo = pm.formal || {};
+    const exHtml = ex ? (ex.exceedances
+      ? `<div class="exc"><p class="exc-h"><b class="hot">Over its limits ${num(ex.exceedances)} time${ex.exceedances === 1 ? '' : 's'}</b> in the last 3 years (${num(ex.months)} month${ex.months === 1 ? '' : 's'})</p>
+          <ol class="hist">${ex.parameters.slice(0, 6).map((x) => `<li><b>${esc(x.name)}</b> · ${num(x.count)}× · worst <span class="hot">${pct(x.max_pct)} over</span>${x.worst ? `<span class="when">${esc(x.worst.value)} vs limit ${esc(x.worst.limit)} ${esc(x.worst.unit || '')} (${esc((x.worst.stat || '').toLowerCase())}) · ${esc(x.worst.date || '')} · outfall ${esc(x.worst.outfall || '?')} · typical ${pct(x.median_pct)} over</span>` : ''}</li>`).join('')}</ol>
+          <a class="rlink" href="${esc(ex.url)}" target="_blank" rel="noopener">EPA effluent charts for ${esc(pm.id)}</a></div>`
+      : `<p class="note good">No readings over its limits in the last 3 years of discharge reports.</p>`) : '';
+    return `<div class="permit">
+      <div class="row"><span class="lbl">Water permit ${esc(pm.id)}</span><span class="${pm.status_code === 'EXP' ? 'hot' : ''}">${esc(pm.status)}${pm.expiration ? ' · ' + esc(pm.expiration) : ''}</span></div>
+      ${pm.effluent_qtrs != null ? `<div class="row"><span class="lbl">Last 12 quarters</span><span>pollution limits exceeded: ${esc(pm.effluent_qtrs)} · reporting problems: ${esc(pm.reporting_qtrs || 0)}</span></div>` : ''}
+      ${pm.water_body ? `<div class="row"><span class="lbl">Discharges to</span><span>${esc(pm.water_body)}</span></div>` : ''}
+      ${exHtml}
+      ${ins.count != null ? `<div class="row"><span class="lbl">Inspections on record</span><span class="${!ins.count ? 'hot' : ''}">${num(ins.count)}${ins.last ? ' · last ' + esc(ins.last) : ''}</span></div>` : ''}
+      ${inf.count != null ? `<div class="row"><span class="lbl">Warning letters / notices</span><span>${num(inf.last5 ?? inf.count)} in 5 yrs · ${num(inf.count)} total</span></div>` : ''}
+      ${fo.count != null ? `<div class="row"><span class="lbl">Formal enforcement</span><span class="${inf.last5 >= 3 && !fo.last5 ? 'hot' : ''}">${num(fo.last5 ?? 0)} in 5 yrs · ${num(fo.count)} total · penalties ${usd(fo.penalties || 0)}</span></div>` : ''}
+      ${(pm.events || []).length ? `<details><summary>${num(pm.events.length)} incident report${pm.events.length === 1 ? '' : 's'} in 10 years (spills, failed toxicity tests…)</summary><ol class="hist">${pm.events.map((x) => `<li><b>${esc(x.what || 'Violation')}</b><span class="when">${esc(x.date || '')}${x.note ? ' · agency note: “' + esc(x.note) + '”' : ''}</span></li>`).join('')}</ol></details>` : ''}
+    </div>`;
+  }
+  function kyPermitsHtml(list) {
+    if (!list.length) return '';
+    return `<details ${list.length < 4 ? 'open' : ''}><summary>Inside ${num(list.length)} Kentucky mine permit area${list.length === 1 ? '' : 's'}</summary><ol class="hist">${list.slice(0, 10).map((r) =>
+      `<li><b>Permit ${esc(r.permit)}</b>${r.permittee ? ' · ' + esc(r.permittee) : ''}<span class="when">${esc(r.kind || '')} · ${esc(r.flag === 'TRNS' ? 'transferred (old number)' : (r.state || r.status || ''))}${r.issued ? ' · issued ' + esc(r.issued) : ''}${r.original ? ' · original permit ' + esc(r.original) : ''}</span></li>`).join('')}</ol>
+      <p class="note">Kentucky Division of Mine Permits boundaries. A transferred number means the permit changed hands.</p></details>`;
+  }
+  function showPermit(p) {
+    show(`
+      <p class="eyebrow">KENTUCKY MINE PERMIT · ${esc(String(p.kind || '').toUpperCase())}</p>
+      <h2 class="card-title">Permit ${esc(p.permit)}</h2>
+      <div class="row"><span class="lbl">Permittee</span><span>${esc(p.permittee || 'not listed')}</span></div>
+      <div class="row"><span class="lbl">Status</span><span>${esc(p.state || p.status || '')}</span></div>
+      ${p.issued ? `<div class="row"><span class="lbl">Issued</span><span>${esc(p.issued)}</span></div>` : ''}
+      ${p.original ? `<div class="row"><span class="lbl">Original permit</span><span>${esc(p.original)}</span></div>` : ''}
+      ${p.acres ? `<div class="row"><span class="lbl">Area</span><span>${num(p.acres)} acres</span></div>` : ''}
+      ${p.permittee ? researchHtml(p.permittee, 'COMPANY') : ''}
+      <p class="src">SOURCE: <a href="${esc(p.source_url)}" target="_blank" rel="noopener">Kentucky Division of Mine Permits</a> (permitted mine boundaries) · pulled ${esc(p.as_of)}</p>`);
+  }
+  function triChart(by) {
+    const ys = Object.keys(by).sort(); if (ys.length < 2) return '';
+    const mx = Math.max(...ys.map((y) => by[y]), 1), W = 300, H = 70, bw = W / ys.length;
+    return `<svg class="trichart" viewBox="0 0 ${W} ${H + 14}" role="img" aria-label="Pounds released per year">${ys.map((y, i) => {
+      const h = Math.max(1, (by[y] / mx) * H);
+      return `<rect x="${i * bw + 2}" y="${H - h}" width="${bw - 4}" height="${h}" rx="2"><title>${y}: ${num(by[y])} lbs</title></rect>` +
+        (i === 0 || i === ys.length - 1 ? `<text x="${i * bw + bw / 2}" y="${H + 12}" text-anchor="middle">${y}</text>` : '');
+    }).join('')}</svg>`;
+  }
   function showTri(p) {
     const t = parse(p.tri, {});
     const ids = parse(p.ids, {});
@@ -254,7 +314,13 @@
       ${t.foreign_parent ? `<div class="row"><span class="lbl">Foreign parent</span><span>${esc(t.foreign_parent)}</span></div>` : ''}
       ${t.parent ? researchHtml(t.parent, 'COMPANY') : ''}
       ${parse(p.flags, []).length ? `<p class="flag">Data note: ${parse(p.flags, []).map(esc).join('; ')}</p>` : ''}
-      <p class="note">Toxic release amounts by chemical and year are the next step for this layer.</p>
+      ${(() => { const r = parse(p.releases, null); if (!r) return '<p class="note">No release amounts found in EPA TRI files for the last 10 years.</p>';
+        return `<div class="stats"><div class="stat"><span class="k">Released in ${esc(r.latest_year)}</span><span class="v">${num(r.latest_total)}<span class="muted-s"> lbs</span></span><span class="s">air ${num(r.latest_air)} · water ${num(r.latest_water)}</span></div>
+          <div class="stat"><span class="k">Chemicals reported</span><span class="v">${num(r.chemical_count)}</span><span class="s">${r.chemicals.filter((c) => c.carcinogen).length} on the cancer list</span></div></div>
+          ${triChart(r.by_year)}
+          <ol class="hist">${r.chemicals.slice(0, 8).map((c) => `<li><b>${esc(c.name)}</b>${c.carcinogen ? ' <span class="hot">carcinogen</span>' : ''}${c.pfas ? ' <span class="hot">PFAS</span>' : ''}${c.pbt ? ' <span class="warm">builds up in bodies</span>' : ''}<span class="when">${num(c.lbs)} lbs · air ${num(c.air)} · water ${num(c.water)}</span></li>`).join('')}</ol>
+          <p class="note">Self-reported by the facility. Most releases are legal under permits; this shows amounts, not violations. Amounts are not health effects.</p>
+          <p class="src"><a href="${esc(r.source_url)}" target="_blank" rel="noopener">EPA TRI facility profile</a></p>`; })()}
       <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA facility report</a>` : 'EPA Toxics Release Inventory'} · pulled ${esc(p.as_of)}</p>
       <p class="src pro">IDS: TRI ${esc(ids.tri)}${ids.frs ? ' · FRS ' + esc(ids.frs) : ''}</p>`);
   }
@@ -322,19 +388,38 @@
       <ol class="hist par">${up('direct', 'Direct parent')}${sameUltimate ? '' : up('ultimate', 'Ultimate parent')}</ol>
       ${e.children?.length ? `<details><summary>${num(e.children_total || e.children.length)} ${(e.children_total || e.children.length) === 1 ? 'company reports' : 'companies report'} it as their direct parent</summary><ol class="hist">${e.children.map((c) => `<li>${entLine(c)}</li>`).join('')}</ol></details>` : ''}</div>`;
   }
+  function regFor(names) {
+    const out = [];
+    for (const n of names) for (const r of (registry?.by_name?.[normName(n)]?.ky || [])) if (!out.some((x) => x.r.url === r.url)) out.push({ asName: n, r });
+    return out;
+  }
+  function regCard({ asName, r }) {
+    const bad = /^B/.test(r.standing || ''), inactive = /^I/.test(r.status || '');
+    return `<div class="par-card"><p class="eyebrow">${esc(asName)} · KENTUCKY RECORD</p>
+      <div class="par-ent"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.legal_name || asName)}</a>
+        <span class="when">KY org ${esc(r.org_number || '?')} · ${esc(r.type || '')}${r.home_state ? ' · formed in ' + esc(r.home_state) : ''}${r.office_city ? ' · office ' + esc(r.office_city) : ''}</span></div>
+      <div class="par-tags"><span class="${inactive ? 'hot' : ''}">${esc(r.status || 'status ?')}</span><span class="${bad ? 'hot' : ''}">Standing: ${esc(r.standing || '?')}</span>${r.last_annual_report ? `<span>Last annual report ${esc(r.last_annual_report)}</span>` : ''}</div>
+      ${r.agent_is_state ? '<p class="note hot">No registered agent of its own: the Secretary of State is listed as its agent, which usually means the company stopped keeping a legal contact in Kentucky.</p>' : r.agent ? `<p class="muted-s">Registered agent: ${esc(r.agent)}</p>` : ''}
+      ${r.officers?.length ? `<ol class="hist par">${r.officers.map((o) => `<li><span class="lbl2">${esc(o.title)}${o.when === 'initial' ? ' · at founding' : ''}</span><b>${esc(o.name)}</b></li>`).join('')}</ol>` : '<p class="muted-s">No officers, directors or members listed in the filing.</p>'}
+      ${r.hidden_admin ? `<p class="note">${num(r.hidden_admin)} administrative role${r.hidden_admin === 1 ? '' : 's'} (secretary, assistant, organizer) held by individuals not shown.</p>` : ''}</div>`;
+  }
   function parentsHtml(f, opList, isPerson) {
     const names = [isPerson ? null : f.controller, ...opList.map((o) => o.name)].filter(Boolean);
     const recs = leiFor(names);
+    const regs = regFor(names);
     const same = f.same_name_ids || [];
     const checked = names.filter((n) => parents?.by_name?.[normName(n)]).length;
     const sec = (n) => `https://www.sec.gov/edgar/search/#/q=%22${encodeURIComponent(n)}%22`;
     return `<section class="fp-time" id="fp-parents"><h2 class="serif">Who’s above them</h2>
       <p class="muted-s">From GLEIF, the global register of legal entities (LEIs). Parents are what each company reported about itself. Counted only when the legal name matches exactly (ignoring LLC, Inc…). ${parents ? `${num(checked)} of ${num(names.length)} names in this family were checked${recs.length ? '' : '; none has an LEI'}.` : 'Not collected yet.'}</p>
       ${recs.length ? `<div class="par-grid">${recs.map(parentsCard).join('')}</div>` : ''}
+      <h3 class="fp-sub" style="margin-top:22px">Who runs them: Kentucky business records</h3>
+      <p class="muted-s">Officers, directors, members and managers exactly as listed with the Kentucky Secretary of State, in their corporate roles. ${registry ? (regs.length ? '' : 'None of this family’s company names matched exactly.') : 'Not collected yet.'}</p>
+      ${regs.length ? `<div class="par-grid">${regs.map(regCard).join('')}</div>` : ''}
       ${same.length ? `<div class="par-same"><h3 class="fp-sub">Same name, other MSHA controller IDs</h3><p class="muted-s">Inferred, medium confidence: identical names (ignoring LLC, Inc…). It may be one company recorded more than once, or a different company with the same name.</p><ol class="hist">${same.map((x) => `<li><a href="#family/${esc(x.id)}">${esc(x.name)}</a><span class="when">MSHA controller ${esc(x.id)} · ${num(x.mines)} mine${x.mines === 1 ? '' : 's'}</span></li>`).join('')}</ol></div>` : ''}
       <div class="fp-two">
         <div class="fp-empty"><b>SEC subsidiaries and mine lists: open the links</b><span>Public companies list their subsidiaries (Exhibit 21) and every mine by MSHA ID (Exhibit 95) in annual reports. SEC blocks our build server, so search EDGAR directly: ${names.slice(0, 4).map((n) => `<a href="${sec(n)}" target="_blank" rel="noopener">${esc(n)}</a>`).join(' · ')}</span></div>
-        <div class="fp-empty"><b>Not connected yet</b><span>State business registries (registered agents, officers, addresses), and owners of companies that report none.</span></div>
+        <div class="fp-empty"><b>Not connected yet</b><span>Business registries in other states (Delaware, Tennessee, West Virginia…) and owners of companies that report none.</span></div>
       </div>
     </section>`;
   }
@@ -426,7 +511,7 @@
         <ol class="hist">${per.map((x) => `<li>Run by <b>${esc(x.op)}</b><span class="when">under this controller ${esc(x.start || '?')} → ${esc(x.end || 'now')}</span></li>`).join('')}</ol>
         ${violStats(mv, 'at this mine')}
         ${fairHtml(parse(p.fair, null))}
-        ${parse(p.epa, []).map((e) => `<div class="fp-epa ${e.severity === 'high' ? 'hi' : ''}"><b>${esc(e.name)}</b><span class="when">EPA site, possibly the same place (${esc(e.confidence)} confidence, inferred): ${esc((e.basis || []).join(' · '))}</span>
+        ${parse(p.epa, []).map((e) => `<div class="fp-epa ${e.severity === 'high' ? 'hi' : ''}"><b>${esc(e.name)}</b><span class="when">EPA site, ${e.confidence === 'high' ? 'same Kentucky mine permit (high confidence)' : 'possibly the same place (' + esc(e.confidence) + ' confidence, inferred)'}: ${esc((e.basis || []).join(' · '))}</span>
           ${(e.permits || []).map((pm) => `<span class="when">Permit ${esc(pm.id)}: <span class="${pm.status_code === 'EXP' ? 'hot' : ''}">${esc(pm.status)}</span></span>`).join('')}
           ${(e.flags || []).length ? `<span class="when hot">⚑ ${e.flags.map((x) => esc(x.label)).join(' · ')}</span><button type="button" class="linkbtn" data-letter="${esc(regFacilityLetter(e, parse(p.ids, {})))}">Draft a records request →</button>` : ''}</div>`).join('')}
         <div class="btns"><button type="button" class="btn" data-fpmap="${esc(famState.sel.slice(2))}">Open on the map →</button></div>`;
@@ -516,7 +601,7 @@
       </section>` : ''}
       ${parentsHtml(f, opList, isPerson)}
       <section class="fp-time"><h2 class="serif">Who ran what, when</h2><p class="muted-s">Each bar is an operating company while this controller held it (MSHA controller records). Open bars are still running.</p>${timeline}</section>
-      <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · USAspending, FEC, lobbying reports, CourtListener, GLEIF (matched by name) · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>
+      <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · USAspending, FEC, lobbying reports, CourtListener, GLEIF, Kentucky Secretary of State (matched by name) · Kentucky mine permits · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>
     </div>`;
   }
 
@@ -640,8 +725,11 @@
       `All inspection reports, compliance evaluations and site-visit records for this facility${pids.length ? ' and permit ' + pids.join(', ') : ''} from ${since()} to the present.`,
       `All notices of violation, warning letters and correspondence between the agency and the permittee in that period.`,
     ];
-    if (codes.has('serious_no_enforcement') || codes.has('violations_no_penalty')) items.push('Any records documenting enforcement decisions for this facility, including any decision not to pursue formal enforcement or penalties.');
+    if (codes.has('serious_no_enforcement') || codes.has('violations_no_penalty') || codes.has('warnings_only')) items.push('Any records documenting enforcement decisions for this facility, including any decision not to pursue formal enforcement or penalties.');
     if (pids.length) items.push(`Discharge Monitoring Reports and noncompliance reports submitted under permit ${pids.join(', ')} from ${since()} to the present.`);
+    const exc = permits.filter((x) => x.exceed?.exceedances);
+    if (exc.length) items.push(`Records of the agency's review of, and response to, the reported permit limit exceedances (${exc.map((x) => x.exceed.parameters.slice(0, 3).map((y) => y.name).join(', ')).join('; ')}) from ${since()} to the present.`);
+    if ((e.flags || []).some((f) => f.code === 'not_inspected' || f.code === 'no_inspection_record')) items.push('Any inspection schedule, targeting list or record explaining why this facility has not been inspected in that period.');
     if (codes.has('expired_permit')) items.push('Records showing the status of the permit renewal, including any renewal application, and any authorization to discharge after the permit expiration date.');
     items.push('Records identifying the current permittee and operator, and any transfer of the permit.');
     const key = 'L' + (++letterSeq);

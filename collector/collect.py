@@ -488,6 +488,89 @@ def meters(a, b):
     return 2 * 6371000 * asin(sqrt(h))
 
 
+KY_PERMITS = 'https://kygisserver.ky.gov/arcgis/rest/services/WGS84WM_Services/Ky_Permitted_Mine_Boundaries_WGS84WM/MapServer/0/query'
+KY_PERMIT_STATUS = {'ACT': 'Active', 'INACT': 'Inactive (reclaimed, forfeited or abandoned)', 'TRNS': 'Transferred (old number, replaced when ownership changed)',
+                    'XREF': 'Record not found'}
+
+
+def _in_ring(x, y, ring):
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i][:2]
+        xj, yj = ring[j][:2]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _in_geom(x, y, g):
+    polys = g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]
+    for poly in polys:
+        if poly and _in_ring(x, y, poly[0]) and not any(_in_ring(x, y, h) for h in poly[1:]):
+            return True
+    return False
+
+
+def ky_permits(mines, facilities, bbox):
+    """Kentucky Division of Mine Permits: permitted mine areas (polygons) with permit number and permittee.
+    A mine and an EPA site inside the same permit area are tied by a state record, not just distance."""
+    feats, offset = [], 0
+    while True:
+        url, body = fetch(KY_PERMITS, {'where': '1=1', 'geometry': ','.join(map(str, bbox)), 'geometryType': 'esriGeometryEnvelope',
+                                       'inSR': 4326, 'outSR': 4326, 'spatialRel': 'esriSpatialRelIntersects',
+                                       'outFields': 'PermitNo,PER_NAME,Type_Flag,ACT_INAC,MINE_STATU,DATE_ISS,ORIG_PERM,FeatCLS,Calc_Acres,PER_TYPE,PERM_ACT',
+                                       'returnGeometry': 'true', 'geometryPrecision': 5, 'maxAllowableOffset': 0.0002,
+                                       'f': 'geojson', 'resultOffset': offset, 'resultRecordCount': 1000}, timeout=300)
+        archive('ky-mine-permits', f'ky-permits-{offset}.geojson', url, body)
+        page = json.loads(body).get('features', [])
+        feats += page
+        if len(page) < 1000:
+            break
+        offset += 1000
+    def rec(p):
+        d = p.get('DATE_ISS')
+        return {'permit': p.get('PermitNo'), 'permittee': (p.get('PER_NAME') or '').strip() or None,
+                'status': KY_PERMIT_STATUS.get(p.get('Type_Flag'), p.get('Type_Flag')), 'flag': p.get('Type_Flag'),
+                'state': p.get('ACT_INAC'), 'kind': {'SF': 'surface', 'UG': 'underground'}.get(p.get('FeatCLS'), p.get('FeatCLS')),
+                'issued': dt.datetime.fromtimestamp(d / 1000, dt.timezone.utc).date().isoformat() if isinstance(d, (int, float)) else None,
+                'original': p.get('ORIG_PERM'), 'acres': round(p.get('Calc_Acres') or 0)}
+    index = []
+    for f in feats:
+        g = f.get('geometry')
+        if not g or g['type'] not in ('Polygon', 'MultiPolygon'):
+            continue
+        xs = [pt[0] for poly in (g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]) for pt in poly[0]]
+        ys = [pt[1] for poly in (g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]) for pt in poly[0]]
+        index.append(((min(xs), min(ys), max(xs), max(ys)), g, rec(f.get('properties') or {})))
+    def within(x, y):
+        out = {}
+        for (a, b, c, d), g, r in index:
+            if a <= x <= c and b <= y <= d and _in_geom(x, y, g):
+                out.setdefault(r['permit'], r)
+        res = sorted(out.values(), key=lambda r: r['issued'] or '', reverse=True)
+        return sorted(res, key=lambda r: r['flag'] == 'TRNS')
+    nm = nf = 0
+    for m in mines:
+        hit = within(*m['geometry']['coordinates'])
+        if hit:
+            m['properties']['ky_permits'] = hit
+            nm += 1
+    for f in facilities:
+        hit = within(*f['geometry']['coordinates'])
+        if hit:
+            f['properties']['ky_permits'] = hit
+            nf += 1
+    log(f'KY permits: {len(feats)} permit areas; {nm} mines and {nf} EPA sites sit inside one')
+    layer = {'type': 'FeatureCollection', 'features': [
+        {'type': 'Feature', 'geometry': g, 'properties': {**r, 'source': 'Kentucky Division of Mine Permits (permitted mine boundaries)',
+                                                          'source_url': 'https://eec.ky.gov/Natural-Resources/Mining/Mine-Permits/Pages/maps-spatial-data.aspx',
+                                                          'as_of': TODAY}}
+        for _, g, r in index if r['flag'] != 'TRNS']}
+    return {'permit_areas': len(feats), 'mines_inside': nm, 'epa_inside': nf}, layer
+
+
 def link_mines_epa(mines, facilities, max_m=500):
     """Possible same-site matches between MSHA mines and EPA facilities.
     No shared official ID exists between the two systems, so every match is INFERRED and labelled:
@@ -504,6 +587,21 @@ def link_mines_epa(mines, facilities, max_m=500):
             or 'coal' in (fp.get('kind') or '').lower()
         ftok = tokens(fp.get('name'))
         best = None
+        fperm = {r['permit']: r for r in fp.get('ky_permits', [])}
+        if fperm:
+            for m in mines:
+                mperm = {r['permit'] for r in m['properties'].get('ky_permits', [])}
+                common = sorted(mperm & set(fperm))
+                if not common:
+                    continue
+                d = meters((fx, fy), m['geometry']['coordinates'])
+                r = fperm[common[0]]
+                basis = [f"both inside Kentucky mine permit {r['permit']}" + (f" (permittee {r['permittee']})" if r.get('permittee') else ''), f'{int(d)} m apart']
+                if coal:
+                    basis.append('EPA lists it as coal mining')
+                cand = (2, -d, m, basis, 'high', d)
+                if best is None or cand[:2] > best[:2]:
+                    best = cand
         for dx in (-0.01, 0, 0.01):
             for dy in (-0.01, 0, 0.01):
                 for m in grid.get((round(fx + dx, 2), round(fy + dy, 2)), []):
@@ -520,7 +618,7 @@ def link_mines_epa(mines, facilities, max_m=500):
                     if shared:
                         basis.append('shared name: ' + ', '.join(sorted(shared)[:3]))
                     conf = 'medium' if (coal and (shared or d < 150)) else 'low'
-                    cand = (conf == 'medium', -d, m, basis, conf, d)
+                    cand = (1 if conf == 'medium' else 0, -d, m, basis, conf, d)
                     if best is None or cand[:2] > best[:2]:
                         best = cand
         if not best:
@@ -661,6 +759,35 @@ def npdes_enrich(facilities):
                 t['reporting_qtrs'] += 1         # paperwork: missing reports / schedules
             if (_int(r.get('NUMCVDT')) or 0) > 0 or (_int(r.get('NUMSVCD')) or 0) > 0:
                 t['other_qtrs'] += 1
+    # Enforcement history per permit: inspections, informal (warning letters / NOVs), formal actions + penalties,
+    # and single-event violations (spills, failed toxicity tests...) with the agency's own notes.
+    since = str(int(TODAY[:4]) - 10)
+    hist = {pid: {'inspections': [], 'informal': [], 'formal': [], 'events': []} for pid in want}
+    for r in stream_csv(z, 'NPDES_INSPECTIONS.csv'):
+        pid = r.get('NPDES_ID')
+        if pid in hist:
+            d = msha_date(r.get('ACTUAL_END_DATE') or r.get('ACTUAL_BEGIN_DATE'))
+            hist[pid]['inspections'].append({'date': d, 'type': r.get('COMP_MONITOR_TYPE_DESC'), 'by': 'EPA' if r.get('STATE_EPA_FLAG') == 'E' else 'State'})
+    for r in stream_csv(z, 'NPDES_INFORMAL_ENFORCEMENT_ACTIONS.csv'):
+        pid = r.get('NPDES_ID')
+        if pid in hist:
+            hist[pid]['informal'].append({'date': msha_date(r.get('ACHIEVED_DATE')), 'type': r.get('ENF_TYPE_DESC'), 'by': r.get('AGENCY'), 'id': r.get('ENF_IDENTIFIER')})
+    for r in stream_csv(z, 'NPDES_FORMAL_ENFORCEMENT_ACTIONS.csv'):
+        pid = r.get('NPDES_ID')
+        if pid in hist:
+            hist[pid]['formal'].append({'date': msha_date(r.get('SETTLEMENT_ENTERED_DATE')), 'type': r.get('ENF_TYPE_DESC'), 'by': r.get('AGENCY'),
+                                        'id': r.get('ENF_IDENTIFIER'), 'fed_penalty': _num(r.get('FED_PENALTY_ASSESSED_AMT')) or 0,
+                                        'state_penalty': _num(r.get('STATE_LOCAL_PENALTY_AMT')) or 0})
+    for r in stream_csv(z, 'NPDES_SE_VIOLATIONS.csv'):
+        pid = r.get('NPDES_ID')
+        if pid in hist:
+            d = msha_date(r.get('SINGLE_EVENT_VIOLATION_DATE'))
+            if (d or '') >= since:
+                hist[pid]['events'].append({'date': d, 'what': r.get('VIOLATION_DESC'),
+                                            'note': re.sub(r'\s+', ' ', (r.get('SINGLE_EVENT_VIOLATION_COMMENT') or '')).strip()[:400] or None})
+    for h in hist.values():
+        for k in h:
+            h[k].sort(key=lambda x: x.get('date') or '', reverse=True)
     n = 0
     for f in facilities:
         fp = f['properties']
@@ -669,12 +796,28 @@ def npdes_enrich(facilities):
             if pid in permits:
                 pm = {k: v for k, v in permits[pid].items() if k != '_v'}
                 pm.update(qn.get(pid, {}))
+                h = hist.get(pid, {})
+                ins = h.get('inspections', [])
+                pm['inspections'] = {'count': len(ins), 'last': ins[0]['date'] if ins else None, 'recent': ins[:5]}
+                c5 = str(int(TODAY[:4]) - 5) + TODAY[4:]
+                inf = h.get('informal', [])
+                pm['informal'] = {'count': len(inf), 'last5': sum(1 for x in inf if (x.get('date') or '') >= c5), 'recent': inf[:8]}
+                fo = h.get('formal', [])
+                pm['formal'] = {'count': len(fo), 'last5': sum(1 for x in fo if (x.get('date') or '') >= c5),
+                                'penalties': round(sum(x['fed_penalty'] + x['state_penalty'] for x in fo)), 'recent': fo[:8]}
+                pm['events'] = h.get('events', [])[:12]
                 plist.append(pm)
         if not plist:
             continue
         n += 1
         fp['permits'] = plist
         fp['effluent_qtrs'] = max((p.get('effluent_qtrs', 0) for p in plist), default=0)
+        cut5 = str(int(TODAY[:4]) - 5) + TODAY[4:]
+        warns = sum(p['informal']['last5'] for p in plist)
+        formal5 = sum(p['formal']['last5'] for p in plist)
+        if warns >= 3 and formal5 == 0:
+            fp['flags'].append({'code': 'warnings_only', 'label': 'Warning letters only, no formal action',
+                                'evidence': f'{warns} warning letters / notices of violation in 5 years; formal enforcement actions in 5 years: 0'})
         for pm in plist:
             if pm['status_code'] == 'EXP':
                 ev = f"Permit {pm['id']} status: Expired (expiration {pm['expiration'] or 'unknown'})"
@@ -685,10 +828,119 @@ def npdes_enrich(facilities):
                 fp['flags'].append({'code': 'expired_permit', 'label': 'Permit expired, still reporting violations' if fp.get('qtrs_nc_raw') else 'Permit expired', 'evidence': ev})
                 break
     log(f'NPDES: {len(permits)} permits matched; {n} facilities enriched')
+    refine_inspection_flags(facilities)
     return n
 
 
-SEVERE = {'serious_no_enforcement', 'expired_permit'}
+def refine_inspection_flags(facilities):
+    """Tighten 'not inspected': only where it matters (a live water permit or a record of problems),
+    using the permit's own inspection history when we have it. Not being inspected is only a silence
+    if there was something to look at."""
+    cut5 = str(int(TODAY[:4]) - 5) + TODAY[4:]
+    dropped = kept = 0
+    for f in facilities:
+        fp = f['properties']
+        flags = fp.get('flags', [])
+        if not any(x['code'] in ('not_inspected', 'no_inspection_record') for x in flags):
+            continue
+        plist = fp.get('permits') or []
+        live = [p for p in plist if p.get('status_code') in ('EFF', 'ADC', 'EXP', 'NON', 'PND')]
+        problems = (fp.get('qtrs_nc_raw') or 0) >= 4 or (fp.get('effluent_qtrs') or 0) > 0 or any(p.get('events') for p in plist)
+        last = max((p.get('inspections', {}).get('last') or '' for p in plist), default='') if plist else ''
+        flags = [x for x in flags if x['code'] not in ('not_inspected', 'no_inspection_record')]
+        if (live or not plist) and problems and (not last or last < cut5):
+            if last:
+                flags.append({'code': 'not_inspected', 'label': 'Problems on record, not inspected in over 5 years',
+                              'evidence': f'Last water-permit inspection: {last}; ' + (f"discharge limits exceeded in {fp.get('effluent_qtrs')} of the last 12 quarters" if fp.get('effluent_qtrs') else f"out of compliance {fp.get('qtrs_nc_raw') or 0} of 12 quarters")})
+            else:
+                flags.append({'code': 'no_inspection_record', 'label': 'Problems on record, no inspection on record',
+                              'evidence': ('No inspection in the permit history' if plist else 'No inspection date in EPA data') + f"; out of compliance {fp.get('qtrs_nc_raw') or 0} of 12 quarters"})
+            kept += 1
+        else:
+            dropped += 1
+        fp['flags'] = flags
+    log(f'Inspection flags: kept {kept} where there were problems to inspect; dropped {dropped} with nothing on record to look at')
+
+
+EFF_URL = 'https://echodata.epa.gov/echo/eff_rest_services.download_effluent_chart'
+
+
+def effluent(facilities, max_permits=150, refresh_days=14, years=3):
+    """How far over the limit: monthly Discharge Monitoring Reports for permits that exceeded limits, from ECHO Effluent Charts.
+    Each exceedance is a reading the facility itself reported above its permit limit (EPA computes the %)."""
+    prev = {}
+    try:
+        prev = json.loads(fetch(PAGES_URL + 'data/effluent.json')[1]).get('by_permit', {})
+    except Exception as e:
+        log('Effluent: no previous run to reuse', repr(e))
+    cutoff = (dt.date.fromisoformat(TODAY) - dt.timedelta(days=refresh_days)).isoformat()
+    start = (dt.date.fromisoformat(TODAY) - dt.timedelta(days=365 * years)).strftime('%m/%d/%Y')
+    end = dt.date.fromisoformat(TODAY).strftime('%m/%d/%Y')
+    cands = []
+    for f in facilities:
+        for pm in f['properties'].get('permits', []) or []:
+            if pm.get('effluent_qtrs') or f['properties'].get('flag_level') == 2:
+                cands.append((pm.get('effluent_qtrs') or 0, pm['id']))
+    cands = [pid for _, pid in sorted(set(cands), reverse=True)][:max_permits]
+    out = {'as_of': TODAY, 'window': [start, end], 'source': 'EPA ECHO Effluent Charts (Discharge Monitoring Reports)',
+           'rule': 'Counted once per reported value above a permit limit. Exceedance % is EPA\'s: how far the reported value was over the limit.',
+           'by_permit': {}}
+    fresh = 0
+    for pid in cands:
+        old = prev.get(pid)
+        if old and old.get('checked', '') >= cutoff:
+            out['by_permit'][pid] = old
+            continue
+        try:
+            url, body = fetch(EFF_URL, {'p_id': pid, 'start_date': start, 'end_date': end}, timeout=300)
+        except Exception as e:
+            log('Effluent failed for', pid, repr(e))
+            if old:
+                out['by_permit'][pid] = old
+            continue
+        fresh += 1
+        archive('epa-effluent', f'effluent-{pid}.csv', url, body)
+        seen, params, months = set(), {}, set()
+        for r in csv.DictReader(io.StringIO(body.decode('latin-1'))):
+            pct = _num(r.get('exceedence_pct'))
+            if not pct or pct <= 0:
+                continue
+            key = r.get('dmr_value_id') or (r.get('parameter_code'), r.get('monitoring_period_end_date'), r.get('statistical_base_code'), r.get('perm_feature_nmbr'))
+            if key in seen:
+                continue
+            seen.add(key)
+            d = msha_date(r.get('monitoring_period_end_date'))
+            months.add((d or '')[:7])
+            p = params.setdefault(r.get('parameter_desc') or r.get('parameter_code'), {'count': 0, 'pcts': [], 'last': None, 'worst': None})
+            p['count'] += 1
+            p['pcts'].append(pct)
+            if (d or '') > (p['last'] or ''):
+                p['last'] = d
+            if not p['worst'] or pct > p['worst']['pct']:
+                p['worst'] = {'pct': pct, 'date': d, 'value': r.get('dmr_value_standard_units') or r.get('dmr_value_nmbr'),
+                              'limit': r.get('limit_value_standard_units') or r.get('limit_value_nmbr'),
+                              'unit': r.get('standard_unit_desc') or r.get('limit_unit_desc'), 'stat': r.get('statistical_base_short_desc'),
+                              'outfall': r.get('perm_feature_nmbr')}
+        plist = []
+        for name, p in params.items():
+            pc = sorted(p['pcts'])
+            plist.append({'name': name, 'count': p['count'], 'max_pct': round(pc[-1]), 'median_pct': round(pc[len(pc) // 2]),
+                          'last': p['last'], 'worst': p['worst']})
+        plist.sort(key=lambda x: (-x['count'], -x['max_pct']))
+        out['by_permit'][pid] = {'checked': TODAY, 'exceedances': len(seen), 'months': len(months - {''}),
+                                 'parameters': plist[:10],
+                                 'url': f'https://echo.epa.gov/trends/loading-tool/reports/effluent-charts#{pid}'}
+    log(f'Effluent: {len(out["by_permit"])} permits ({fresh} refreshed); '
+        f'{sum(1 for v in out["by_permit"].values() if v.get("exceedances"))} with readings over their limits')
+    for f in facilities:
+        for pm in f['properties'].get('permits', []) or []:
+            e = out['by_permit'].get(pm['id'])
+            if e:
+                pm['exceed'] = {k: e[k] for k in ('exceedances', 'months', 'parameters', 'url')}
+    return out
+
+
+SEVERE = {'serious_no_enforcement', 'expired_permit'}  # warnings_only becomes high when paired with real pollution (effluent_qtrs)
 
 
 def rank_flags(facilities):
@@ -773,6 +1025,82 @@ def tri(facilities):
                 'as_of': TODAY, 'ids': {'tri': r.get('tri_facility_id'), 'frs': frs}}})
     log(f'TRI: {len(feats)} facilities mapped')
     return feats
+
+
+TRI_BASIC = 'https://data.epa.gov/efservice/downloads/tri/mv_tri_basic_download/{year}_{state}/csv'
+
+
+def tri_releases(tri_feats, years=10):
+    """Pounds released per facility per year (TRI Basic files, one per state and year), and the latest year's chemicals.
+    Self-reported by the facility to EPA. Releases are legal unless they break a permit; this shows amounts, not violations."""
+    want = {f['properties']['ids'].get('tri'): f for f in tri_feats if f['properties']['ids'].get('tri')}
+    if not want:
+        return 0
+    states = sorted({a['state'] for a in EF_AREAS.values()})
+    agg = {}
+    y0 = int(TODAY[:4]) - 1
+    for state in states:
+        for year in range(y0, y0 - years - 1, -1):
+            try:
+                url, body = fetch(TRI_BASIC.format(year=year, state=state), timeout=300)
+            except Exception as e:
+                log(f'TRI basic {year} {state}: not available ({e!r})')
+                continue
+            if len(body) < 500:
+                continue
+            archive('epa-tri-basic', f'tri-basic-{year}-{state}.csv', url, body)
+            rd = csv.reader(io.StringIO(body.decode('latin-1')))
+            head = [re.sub(r'^\d+\.\s*', '', h).strip().upper() for h in next(rd)]
+            def ix(*names):
+                for n in names:
+                    if n in head:
+                        return head.index(n)
+                return None
+            I = {k: ix(*v) for k, v in {'id': ('TRIFD',), 'chem': ('CHEMICAL',), 'unit': ('UNIT OF MEASURE',),
+                                         'fug': ('5.1 - FUGITIVE AIR',), 'stack': ('5.2 - STACK AIR',), 'water': ('5.3 - WATER',),
+                                         'onsite': ('ON-SITE RELEASE TOTAL',), 'offsite': ('OFF-SITE RELEASE TOTAL', 'OFF-SITE RELEASE TOTALS'),
+                                         'total': ('TOTAL RELEASES',), 'carc': ('CARCINOGEN',), 'pfas': ('PFAS',), 'pbt': ('PBT',)}.items()}
+            if I['id'] is None or I['chem'] is None:
+                log('TRI basic: unexpected columns', head[:10])
+                continue
+            hits = 0
+            for r in rd:
+                fid = r[I['id']] if len(r) > I['id'] else None
+                if fid not in want:
+                    continue
+                hits += 1
+                g = lambda k: (_num(r[I[k]]) or 0) if I[k] is not None and I[k] < len(r) else 0
+                k = 1 / 453.59237 if (r[I['unit']] if I['unit'] is not None else '').lower().startswith('gram') else 1
+                tot = g('total') or (g('onsite') + g('offsite'))
+                a = agg.setdefault(fid, {}).setdefault(year, {'total': 0, 'air': 0, 'water': 0, 'chems': {}})
+                a['total'] += tot * k
+                a['air'] += (g('fug') + g('stack')) * k
+                a['water'] += g('water') * k
+                c = a['chems'].setdefault(r[I['chem']], {'lbs': 0, 'air': 0, 'water': 0, 'carcinogen': False, 'pfas': False, 'pbt': False})
+                c['lbs'] += tot * k
+                c['air'] += (g('fug') + g('stack')) * k
+                c['water'] += g('water') * k
+                for flag in ('carc', 'pfas', 'pbt'):
+                    if I[flag] is not None and I[flag] < len(r) and r[I[flag]].upper() in ('YES', 'Y', 'TRUE'):
+                        c['carcinogen' if flag == 'carc' else flag] = True
+            log(f'TRI basic {year} {state}: {hits} rows for our facilities')
+    n = 0
+    for fid, by_year in agg.items():
+        f = want[fid]
+        latest = max(by_year)
+        ch = sorted(by_year[latest]['chems'].items(), key=lambda kv: -kv[1]['lbs'])
+        f['properties']['releases'] = {
+            'unit': 'pounds', 'source': 'EPA TRI Basic Data Files (self-reported by the facility)',
+            'source_url': f'https://enviro.epa.gov/triexplorer/release_fac_profile?TRI={fid}',
+            'by_year': {str(y): round(v['total']) for y, v in sorted(by_year.items())},
+            'latest_year': latest, 'latest_total': round(by_year[latest]['total']),
+            'latest_air': round(by_year[latest]['air']), 'latest_water': round(by_year[latest]['water']),
+            'chemicals': [{'name': k, 'lbs': round(v['lbs'], 1), 'air': round(v['air'], 1), 'water': round(v['water'], 1),
+                           'carcinogen': v['carcinogen'], 'pfas': v['pfas'], 'pbt': v['pbt']} for k, v in ch[:10]],
+            'chemical_count': len(ch)}
+        n += 1
+    log(f'TRI releases: amounts for {n} of {len(want)} facilities')
+    return n
 
 
 VIOL_CAT = {'MCL': 'Over the legal limit', 'MRDL': 'Over the disinfectant limit', 'TT': 'Treatment technique not met',
@@ -1220,6 +1548,147 @@ def parents(families, max_controllers=80, ops_per=3, refresh_days=30):
     return out
 
 
+KY_SOS = 'https://sosbes.sos.ky.gov/BusSearchNProfile/'
+COMPANY_WORDS = re.compile(r'\b(llc|l\.l\.c|inc|incorporated|corp|corporation|company|co|ltd|lp|llp|plc|gmbh|trust|holdings|partners|group|fund|bank|associates)\b', re.I)
+# Lu's rule: owners, executives, directors and managing members are named; administrative roles held by
+# individuals (secretary, assistant, organizer, incorporator, clerk) stay private. Companies are always named.
+HIDE_TITLES = re.compile(r'secretary|assistant|asst|organizer|incorporator|clerk|registered agent', re.I)
+
+
+class _Session:
+    def __init__(self):
+        import http.cookiejar
+        self.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+    def get(self, url, form=None):
+        data = urllib.parse.urlencode(form).encode() if form else None
+        h = {'User-Agent': UA}
+        if data:
+            h['Content-Type'] = 'application/x-www-form-urlencoded'
+        with self.op.open(urllib.request.Request(url, data=data, headers=h), timeout=90) as r:
+            body = r.read().decode('utf-8', 'replace')
+            final = r.geturl()
+        time.sleep(1)
+        return final, body
+
+
+def _hidden(html):
+    return {m.group(1): m.group(2) for m in re.finditer(r'<input type="hidden" name="([^"]+)"[^>]*value="([^"]*)"', html)}
+
+
+def _clean(t):
+    t = re.sub(r'<br\s*/?>', ' / ', t or '')
+    return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', t)).replace('&amp;', '&').strip()
+
+
+def ky_sos_profile(sess, url):
+    final, html = sess.get(url)
+    info = {_clean(a).lower(): _clean(b) for a, b in re.findall(r'class="grid-label">(.*?)</div>\s*<div class="grid-value">(.*?)</div>', html, re.S)}
+    officers = []
+    for name, val in re.findall(r'<input type="submit" name="([^"]+)" value="([^"]+)"', html):
+        if not re.search(r'Officer|Representative|Member|Manager', val, re.I):
+            continue
+        _, page = sess.get(final, {**_hidden(html), name: val})
+        kind = 'initial' if 'Initial' in val or 'Founding' in val else 'current'
+        mh = re.search(r'>\s*(?:Current|Initial|Founding) (?:Officers|Representatives)\s*<', page)
+        if not mh:
+            continue
+        seg = page[mh.end():]
+        tbl = re.search(r'<table.*?</table>', seg, re.S)
+        if not tbl:
+            continue
+        for tr in re.findall(r'<tr.*?</tr>', tbl.group(0), re.S):
+            cells = [_clean(c) for c in re.findall(r'<td.*?>(.*?)</td>', tr, re.S)]
+            cells = [c for c in cells if c]
+            if len(cells) >= 2:
+                officers.append({'title': cells[0], 'name': cells[1], 'when': kind})
+    def city_state(addr):
+        parts = [x.strip() for x in (addr or '').split(' / ') if x.strip()]
+        return parts[-1] if parts else None
+    agent = info.get('registered agent', '')
+    out = {'org_number': info.get('organization number'), 'legal_name': info.get('name'), 'type': info.get('company type'),
+           'status': info.get('status'), 'standing': info.get('standing'), 'home_state': info.get('state'),
+           'filed': info.get('file date'), 'authority': info.get('authority date'), 'last_annual_report': info.get('last annual report'),
+           'office_city': city_state(info.get('principal office')),
+           'agent': (agent.split(' / ')[0] if agent else None),
+           'agent_is_state': 'SECRETARY OF STATE' in agent.upper(),
+           'url': final, 'officers': []}
+    hidden = 0
+    for o in officers:
+        is_co = bool(COMPANY_WORDS.search(o['name']))
+        if not is_co and HIDE_TITLES.search(o['title']):
+            hidden += 1
+            continue
+        out['officers'].append({**o, 'company': is_co})
+    out['hidden_admin'] = hidden
+    return out
+
+
+def ky_sos_lookup(sess, name):
+    """Exact normalized-name matches only."""
+    final, html = sess.get(KY_SOS + 'search.aspx')
+    form = {**_hidden(html), 'ctl00$MainContent$ddlSearchBy': 'Business Name or Organization Number',
+            'ctl00$MainContent$txtSearch': name[:60], 'ctl00$MainContent$BSearch': 'Search'}
+    final, res = sess.get(KY_SOS + 'search.aspx', form)
+    want = norm_name(name)
+    if 'Profile.aspx' in final:                       # single hit: redirected straight to the profile
+        p = ky_sos_profile(sess, final)
+        return [p] if norm_name(p.get('legal_name')) == want else []
+    rows = re.findall(r'href="(Profile\.aspx/?\?ctr=\d+)"><b>([^<]+)</b>.*?<font[^>]*>([^<]*)</font>.*?<font[^>]*>([^<]*)</font>', res, re.S)
+    hits = [(h, _clean(n), st) for h, n, _, st in rows if norm_name(_clean(n)) == want]
+    hits.sort(key=lambda x: not x[2].startswith('A'))   # active first
+    return [ky_sos_profile(sess, urllib.parse.urljoin(KY_SOS, h.replace('&amp;', '&'))) for h, _, _ in hits[:2]]
+
+
+def registry(families, mines, max_new=70, refresh_days=30):
+    """Kentucky Secretary of State business records: standing, home state, officers/directors/members."""
+    prev = {}
+    try:
+        prev = json.loads(fetch(PAGES_URL + 'data/registry.json')[1]).get('by_name', {})
+    except Exception as e:
+        log('Registry: no previous run to reuse', repr(e))
+    cutoff = (dt.date.fromisoformat(TODAY) - dt.timedelta(days=refresh_days)).isoformat()
+    comp = [f for f in families if not (f.get('controller_type') or '').upper().startswith('P')]
+    comp = sorted(comp, key=lambda f: (-((f.get('viol') or {}).get('total') or 0), -len(f.get('mines', []))))[:80]
+    names = []
+    for f in comp:
+        names.append(f['controller'])
+        names += [o['name'] for o in f.get('operators', [])[:3] if o.get('name')]
+    for m in mines:
+        for r in m['properties'].get('ky_permits', [])[:2]:
+            if r.get('permittee') and r.get('flag') != 'TRNS':
+                names.append(r['permittee'])
+    names = [n for n in dict.fromkeys(names) if n and COMPANY_WORDS.search(n)]
+    names = list({norm_name(n): n for n in reversed(names) if norm_name(n)}.values())[::-1]
+    out = {'as_of': TODAY, 'source': 'Kentucky Secretary of State, Business Entity Search (public records)',
+           'rules': 'Exact name matches only (ignoring LLC, Inc...). Officers, directors, members and managers are shown as listed in the filing, '
+                    'in their corporate role. Administrative roles held by individuals (secretary, assistant, organizer) are not shown. '
+                    'Company addresses are shown as city and state only.', 'by_name': {}}
+    sess, new, fails = _Session(), 0, 0
+    for n in names:
+        k = norm_name(n)
+        old = prev.get(k)
+        if old and old.get('checked', '') >= cutoff:
+            out['by_name'][k] = old
+            continue
+        if new >= max_new or fails > 6:
+            if old:
+                out['by_name'][k] = old
+            continue
+        try:
+            out['by_name'][k] = {'name': n, 'checked': TODAY, 'ky': ky_sos_lookup(sess, n)}
+            new += 1
+        except Exception as e:
+            fails += 1
+            log('KY SOS failed for', n, repr(e))
+            if old:
+                out['by_name'][k] = old
+    hits = sum(1 for r in out['by_name'].values() if r.get('ky'))
+    log(f'Registry: {len(out["by_name"])} names ({new} looked up); {hits} found in the Kentucky register')
+    out['matched'] = hits
+    return out
+
+
 def write_json(name, obj):
     os.makedirs(OUT, exist_ok=True)
     json.dump(obj, open(os.path.join(OUT, name), 'w'), separators=(',', ':'))
@@ -1250,12 +1719,22 @@ def main():
         except Exception as e:
             log('NPDES enrich failed:', repr(e))
         rank_flags(facilities)
+        try:
+            eff = effluent(facilities)
+            write_json('effluent.json', eff)
+            report['effluent_permits'] = sum(1 for v in eff['by_permit'].values() if v.get('exceedances'))
+        except Exception as e:
+            log('Effluent failed:', repr(e))
     tri_feats = []
     try:
         tri_feats = tri(facilities)
     except Exception as e:
         log('TRI failed:', repr(e))
     if tri_feats:
+        try:
+            report['tri_with_amounts'] = tri_releases(tri_feats)
+        except Exception as e:
+            log('TRI releases failed:', repr(e))
         layers['tri'] = write_json('tri.geojson', {'type': 'FeatureCollection', 'features': tri_feats})
     try:
         water, water_feats = sdwis()
@@ -1279,6 +1758,20 @@ def main():
             report['parents'] = {'gleif_matched': par['matched'], 'names': len(par['by_name']), 'same_name_groups': par['same_name_groups']}
         except Exception as e:
             log('Parents failed:', repr(e))
+    if feats:
+        try:
+            report['ky_permits'], kylayer = ky_permits(feats, facilities, AREAS['harlan-ky']['bbox'])
+            if kylayer['features']:
+                layers['kypermits'] = write_json('kypermits.geojson', kylayer)
+        except Exception as e:
+            log('KY permits failed:', repr(e))
+    if feats:
+        try:
+            reg = registry(families, feats)
+            write_json('registry.json', reg)
+            report['registry'] = {'names': len(reg['by_name']), 'found': reg['matched']}
+        except Exception as e:
+            log('Registry failed:', repr(e))
     if feats and facilities:
         try:
             report['mine_epa_links'] = link_mines_epa(feats, facilities)

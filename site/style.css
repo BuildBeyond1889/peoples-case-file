@@ -163,3 +163,11 @@ body.on-family #navMap,body.on-family #navHome{background:none;color:var(--muted
 .lbl2{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .muted-b{color:var(--amber);font-weight:600}
 .par-same{margin-top:16px}
+/* Permits, exceedances, TRI amounts, KY records */
+.permit{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+.exc{margin:8px 0;padding:10px 12px;border-radius:10px;background:rgba(238,125,103,.07);border:1px solid rgba(238,125,103,.25)}
+.exc-h{margin:0 0 6px;font-size:13px}
+.note.good{color:var(--green)}
+.trichart{width:100%;height:auto;margin:8px 0}.trichart rect{fill:#C39BD3;opacity:.85}.trichart text{fill:var(--muted);font-size:9px;font-family:var(--mono)}
+.warm{color:var(--amber)}
+.par-tags{display:flex;flex-wrap:wrap;gap:6px}.par-tags span{font-family:var(--mono);font-size:10.5px;padding:3px 7px;border-radius:999px;border:1px solid var(--line2);color:var(--soft)}.par-tags span.hot{color:var(--coral);border-color:rgba(238,125,103,.5)}
