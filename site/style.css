@@ -31,7 +31,7 @@ a{color:#9CC6D8}a:hover{color:#C8E1EC}
 .legend{display:flex;flex-direction:column;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:12.5px;color:var(--soft)}
 .legend span{display:flex;align-items:center;gap:8px}
 .dot{width:10px;height:10px;border-radius:5px;display:inline-block}
-.card-title{font:400 32px/1.08 var(--serif);margin:6px 0 4px}
+.panel .card-title{font:400 32px/1.08 var(--serif);margin:6px 0 4px}
 .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:14px 0}
 .stat{background:var(--card2);padding:12px 14px;display:flex;flex-direction:column;gap:2px}
 .stat .k{font-size:11.5px;color:var(--muted)}
