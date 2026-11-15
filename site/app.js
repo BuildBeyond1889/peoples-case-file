@@ -1055,8 +1055,15 @@ Everything below is what the site showed, built only from public records. “Lin
       <p class="muted-s">${isC ? `Comments count only while the comment period is open. Check the official notice for the deadline and where to send it${L.item.url ? ` (<a href="${esc(L.item.url)}" target="_blank" rel="noopener">official record</a>)` : ''}. Add how it affects you, in your own words; that matters most.` : 'Fill in your name and contact, check the agency’s current records-request address or online portal, then send. Agencies must answer within deadlines set by law (often 5 business days for Kentucky and Michigan, 20 working days for federal FOIA).'}</p>
       <textarea id="letterBox" class="letter" rows="18" aria-label="Letter text">${esc(text)}</textarea>
       <div class="btns"><button type="button" class="btn primary" id="copyLetter">Copy letter</button><button type="button" class="btn" id="dlLetter">Download .txt</button></div>
+      <details class="trackbox"><summary>Sent it? Track the deadline →</summary>
+        <div class="rform"><label>Date sent<input type="date" id="trSent" value="${new Date().toISOString().slice(0, 10)}"></label>
+          <label>How<select id="trHow"><option>Email</option><option>Online portal</option><option>Mail</option><option>In person</option></select></label>
+          <label>Reference number (optional)<input id="trRef" placeholder="e.g. 2026-FOIA-1234"></label></div>
+        <button type="button" class="btn primary" id="trSave">Start tracking</button>
+        <p class="note">Saved only in this browser on this device. Nothing is sent to us or anyone else.</p></details>
       <p class="note">${isC ? 'A draft to help you take part in a public process. Not legal advice. A local legal aid office or law-school clinic can help with hearings and appeals.' : 'A draft to help you ask for public records. Not legal advice. Talk to legal aid or a lawyer about anything beyond a records request.'}</p>`);
     $('copyLetter').onclick = async () => { try { await navigator.clipboard.writeText($('letterBox').value); $('copyLetter').textContent = 'Copied'; } catch (err) { $('letterBox').select(); } };
+    $('trSave').onclick = () => { const r = trackAdd(L, $('letterBox').value, $('trSent').value, $('trHow').value, $('trRef').value.trim()); location.hash = '#requests/' + r.id; };
     $('dlLetter').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([$('letterBox').value], { type: 'text/plain' })); a.download = isC ? 'public-comment.txt' : 'records-request.txt'; a.click(); };
   }
 
@@ -1111,6 +1118,123 @@ Everything below is what the site showed, built only from public records. “Lin
   map.on('load', () => loadData().then(markReady, markReady));
 
   // ---- Home page vs map (hash routing: '' = home, '#map', '#map/harlan', '#map/flint', '#map/flags')
+  // ---- Records-request tracker: browser-only (localStorage). Deadlines are approximate (federal holidays only).
+  const LAWS = {
+    KY: { name: 'Kentucky Open Records Act', days: 5, unit: 'business', cite: 'KRS 61.880(1)', ext: null,
+      follow: 'Under KRS 61.880(1), the agency must respond within five business days of receiving the request.',
+      appeal: { to: 'Office of the Attorney General, Open Records and Open Meetings Division, 700 Capital Avenue, Suite 118, Frankfort, KY 40601', cite: 'KRS 61.880(2)', note: 'Send the AG a copy of your request and the agency’s response (or a note that it never responded). The AG issues a written decision.' } },
+    MI: { name: 'Michigan Freedom of Information Act', days: 5, unit: 'business', cite: 'MCL 15.235(2)', ext: 'The agency may extend once by up to 10 business days with written notice.',
+      follow: 'Under MCL 15.235(2), the public body must respond within five business days (or ten more with a written extension notice). Under MCL 15.235(3), failing to respond counts as a final decision to deny.',
+      appeal: { to: 'The head of the public body (written appeal under MCL 15.240), or the circuit court within 180 days', cite: 'MCL 15.240', note: 'Label it “Appeal” and say why the denial (or silence) is wrong.' } },
+    FED: { name: 'Freedom of Information Act', days: 20, unit: 'working', cite: '5 U.S.C. § 552(a)(6)(A)(i)', ext: 'The agency may extend by 10 working days in “unusual circumstances” with written notice.',
+      follow: 'Under 5 U.S.C. § 552(a)(6)(A)(i), the agency must determine whether to comply within 20 working days. I also ask for an estimated completion date under § 552(a)(7)(B).',
+      appeal: { to: 'The agency’s FOIA appeals office (named in its response), within 90 days of its decision; the Office of Government Information Services (OGIS) can mediate', cite: '5 U.S.C. § 552(a)(6)(A)', note: 'If the agency misses its deadline, you may treat that as a denial and appeal or go to court.' } },
+    COMMENT: { name: 'Public comment period', days: null, unit: null, cite: '', follow: '', appeal: null },
+  };
+  const lawOf = (L) => L.kind === 'comment' ? 'COMMENT' : /Kentucky/.test(L.law || '') ? 'KY' : /Michigan/.test(L.law || '') ? 'MI' : 'FED';
+  function fedHolidays(y) {
+    const nth = (m, wd, n) => { const d = new Date(Date.UTC(y, m, 1)); while (d.getUTCDay() !== wd) d.setUTCDate(d.getUTCDate() + 1); d.setUTCDate(d.getUTCDate() + 7 * (n - 1)); return d; };
+    const last = (m, wd) => { const d = new Date(Date.UTC(y, m + 1, 0)); while (d.getUTCDay() !== wd) d.setUTCDate(d.getUTCDate() - 1); return d; };
+    const fixed = (m, dd) => { const d = new Date(Date.UTC(y, m, dd)); if (d.getUTCDay() === 6) d.setUTCDate(dd - 1); if (d.getUTCDay() === 0) d.setUTCDate(dd + 1); return d; };
+    return new Set([fixed(0, 1), nth(0, 1, 3), nth(1, 1, 3), last(4, 1), fixed(5, 19), fixed(6, 4), nth(8, 1, 1), nth(9, 1, 2), fixed(10, 11), nth(10, 4, 4), fixed(11, 25)].map((d) => d.toISOString().slice(0, 10)));
+  }
+  function addBusinessDays(iso, n) {
+    const d = new Date(iso + 'T12:00:00Z'); let k = 0;
+    while (k < n) { d.setUTCDate(d.getUTCDate() + 1); const s = d.toISOString().slice(0, 10); const wd = d.getUTCDay(); if (wd && wd !== 6 && !fedHolidays(d.getUTCFullYear()).has(s)) k++; }
+    return d.toISOString().slice(0, 10);
+  }
+  const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 864e5);
+  const todayISO = () => new Date().toISOString().slice(0, 10);
+  let reqs = (() => { try { return JSON.parse(localStorage.getItem('pcf.requests')) || []; } catch (e) { return []; } })();
+  const saveReqs = () => { try { localStorage.setItem('pcf.requests', JSON.stringify(reqs)); } catch (e) {} reqBadge(); };
+  function dueOf(r) {
+    if (r.law === 'COMMENT') return r.comment_ends || null;
+    const law = LAWS[r.law];
+    return addBusinessDays(r.sent, law.days + (r.extended ? (r.law === 'FED' ? 10 : 10) : 0));
+  }
+  function clockOf(r) {
+    const due = dueOf(r);
+    if (['answered', 'closed'].includes(r.status)) return { cls: 'done', txt: r.status === 'answered' ? 'Answered' : 'Closed', late: false };
+    if (r.status === 'denied' || r.status === 'partial') return { cls: 'late', txt: r.status === 'denied' ? 'Denied: you can appeal' : 'Partly answered: you can appeal the rest', late: true };
+    if (!due) return { cls: '', txt: 'No deadline known: check the notice', late: false };
+    const left = daysBetween(todayISO(), due);
+    return left < 0 ? { cls: 'late', txt: `${-left} day${left === -1 ? '' : 's'} past the deadline (${due})`, late: true }
+      : { cls: '', txt: left === 0 ? `Due today (${due})` : `${left} day${left === 1 ? '' : 's'} left · due ${due}`, late: false };
+  }
+  function reqBadge() {
+    const n = reqs.filter((r) => clockOf(r).late).length, b = $('reqBadge');
+    if (!b) return; b.hidden = !n; b.textContent = n;
+  }
+  function trackAdd(L, text, sent, how, ref) {
+    const r = { id: 'R' + Date.now().toString(36), created: todayISO(), sent: sent || todayISO(), how, ref, law: lawOf(L), to: L.to, subject: L.subject,
+      text, status: 'waiting', extended: false, comment_ends: L.item?.ends || null, item_url: L.item?.url || null, events: [{ date: sent || todayISO(), what: `Sent by ${how.toLowerCase()}` }] };
+    reqs.unshift(r); saveReqs(); return r;
+  }
+  function followText(r) {
+    const law = LAWS[r.law];
+    return `[Your name]\n[Your mailing address or email]\n\n${todayISO()}\n\nTo: ${r.to}\n\nRe: Follow-up on my request sent ${r.sent}${r.ref ? ' (reference ' + r.ref + ')' : ''}: ${r.subject}\n\nOn ${r.sent} I sent a request under the ${law.name}. ${law.follow}\nThe deadline was ${dueOf(r)}, and as of today I have not received ${r.status === 'partial' ? 'a complete response' : 'a response'}.\n\nPlease tell me in writing when you will provide the records, or which records you are withholding and the specific exemption for each. A copy of my original request is below.\n\nThank you,\n[Your name]\n\n----- Original request -----\n${r.text}`;
+  }
+  function appealText(r) {
+    const law = LAWS[r.law]; if (!law.appeal) return '';
+    return `[Your name]\n[Your mailing address or email]\n\n${todayISO()}\n\nTo: ${law.appeal.to}\n\nRe: APPEAL under ${law.appeal.cite}: request to ${r.to}, sent ${r.sent}${r.ref ? ' (reference ' + r.ref + ')' : ''}\n\nI appeal the ${r.status === 'waiting' ? 'failure to respond to' : r.status === 'partial' ? 'partial denial of' : 'denial of'} my request under the ${law.name}. ${r.status === 'waiting' ? `The response was due ${dueOf(r)} and none has arrived.` : 'The agency has not shown that each withheld record falls within a specific exemption.'}\n\nI ask that the records be released, or that each withheld record be identified with the exemption claimed and an explanation of how it applies, and that any reasonably segregable non-exempt portion be released.\n\nAttached: my original request${r.status !== 'waiting' ? ' and the agency’s response' : ''}.\n\nThank you,\n[Your name]\n\n----- Original request -----\n${r.text}`;
+  }
+  function reqCard(r) {
+    const c = clockOf(r), law = LAWS[r.law];
+    return `<article class="rcard ${c.late ? 'late' : ''}" id="req-${esc(r.id)}">
+      <div class="rtop"><b>${esc(r.subject)}</b><span class="rclock ${c.cls}">${esc(c.txt)}</span></div>
+      <span class="when">${esc(law.name)}${law.cite ? ' · ' + esc(law.cite) : ''} · to ${esc(r.to)} · sent ${esc(r.sent)} by ${esc((r.how || '').toLowerCase())}${r.ref ? ' · ref ' + esc(r.ref) : ''}</span>
+      ${law.ext ? `<span class="when">${esc(law.ext)}${r.extended ? ' Extension noted: deadline moved.' : ''}</span>` : ''}
+      <ol class="hist">${r.events.map((e) => `<li><span class="when">${esc(e.date)}</span> ${esc(e.what)}</li>`).join('')}</ol>
+      <div class="racts">
+        <select data-rstatus="${esc(r.id)}" aria-label="Status">${['waiting', 'answered', 'partial', 'denied', 'closed'].map((s) => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${{ waiting: 'Waiting for answer', answered: 'Answered in full', partial: 'Partly answered', denied: 'Denied', closed: 'Closed / dropped' }[s]}</option>`).join('')}</select>
+        ${law.ext && !r.extended && r.status === 'waiting' ? `<button type="button" data-rext="${esc(r.id)}">They sent an extension notice</button>` : ''}
+        ${r.law !== 'COMMENT' && (c.late || r.status === 'waiting') ? `<button type="button" data-rdraft="follow:${esc(r.id)}">Draft a follow-up</button>` : ''}
+        ${law.appeal && (c.late || ['denied', 'partial'].includes(r.status)) ? `<button type="button" data-rdraft="appeal:${esc(r.id)}">Draft an appeal</button>` : ''}
+        <button type="button" data-rdraft="orig:${esc(r.id)}">Original letter</button>
+        <button type="button" data-rdel="${esc(r.id)}">Delete</button>
+      </div>
+      <div class="rdraft" id="rd-${esc(r.id)}"></div>
+    </article>`;
+  }
+  function renderReqs(focus) {
+    const el = $('reqPage');
+    const late = reqs.filter((r) => clockOf(r).late).length;
+    el.innerHTML = `<div class="fp-wrap"><div class="fp-crumb"><a href="#">Home</a> / <span>My requests</span></div>
+      <p class="eyebrow">RECORDS REQUESTS AND COMMENTS · SAVED ONLY IN THIS BROWSER</p>
+      <h1 class="serif">Hold them to the clock</h1>
+      <p class="lede2">${reqs.length ? `${num(reqs.length)} tracked · ${late ? `<b class="hot">${num(late)} past due or denied</b>` : 'none overdue'}` : 'Nothing tracked yet. Draft a records request or comment from any card on the map, send it, then press “Track the deadline”.'}</p>
+      <div class="btns"><a class="btn" href="#map">Find something to request →</a>${reqs.length ? '<button type="button" class="btn" id="reqExport">Back up (.json)</button>' : ''}<label class="btn">Restore backup<input type="file" id="reqImport" accept="application/json" hidden></label></div>
+      <div class="rlist">${reqs.map(reqCard).join('')}</div>
+      <p class="note">Deadlines are counted in business days, skipping weekends and federal holidays, so state holidays can shift them by a day. Check the law cited. Drafts are not legal advice; legal aid or a law-school clinic can help with appeals. Nothing here leaves your device unless you send it.</p></div>`;
+    if (focus) document.getElementById('req-' + focus)?.scrollIntoView({ block: 'center' });
+  }
+  $('reqPage').addEventListener('click', (e) => {
+    const t = e.target;
+    const d = t.closest('[data-rdraft]');
+    if (d) {
+      const [kind, id] = d.dataset.rdraft.split(':'); const r = reqs.find((x) => x.id === id); if (!r) return;
+      const text = kind === 'follow' ? followText(r) : kind === 'appeal' ? appealText(r) : r.text;
+      const law = LAWS[r.law];
+      $('rd-' + id).innerHTML = `${kind === 'appeal' && law.appeal ? `<p class="note">${esc(law.appeal.note)} Confirm the current address on the agency’s or Attorney General’s website before sending.</p>` : ''}<textarea class="letter" rows="14" aria-label="Draft">${esc(text)}</textarea><div class="racts"><button type="button" data-rcopy="${esc(id)}">Copy</button>${kind !== 'orig' ? `<button type="button" data-rlog="${esc(id)}:${kind}">I sent this</button>` : ''}</div>`;
+      return;
+    }
+    const cp = t.closest('[data-rcopy]'); if (cp) { const ta = $('rd-' + cp.dataset.rcopy).querySelector('textarea'); navigator.clipboard?.writeText(ta.value).then(() => (cp.textContent = 'Copied'), () => ta.select()); return; }
+    const lg = t.closest('[data-rlog]'); if (lg) { const [id, kind] = lg.dataset.rlog.split(':'); const r = reqs.find((x) => x.id === id); r.events.push({ date: todayISO(), what: kind === 'appeal' ? 'Appeal sent' : 'Follow-up sent' }); saveReqs(); renderReqs(id); return; }
+    const ex = t.closest('[data-rext]'); if (ex) { const r = reqs.find((x) => x.id === ex.dataset.rext); r.extended = true; r.events.push({ date: todayISO(), what: 'Agency sent an extension notice' }); saveReqs(); renderReqs(r.id); return; }
+    const del = t.closest('[data-rdel]'); if (del && confirmDel(del)) { reqs = reqs.filter((x) => x.id !== del.dataset.rdel); saveReqs(); renderReqs(); return; }
+    if (t.id === 'reqExport') { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(reqs, null, 1)], { type: 'application/json' })); a.download = `my-requests-${todayISO()}.json`; a.click(); }
+  });
+  function confirmDel(btn) { if (btn.dataset.armed) return true; btn.dataset.armed = '1'; btn.textContent = 'Press again to delete'; setTimeout(() => { delete btn.dataset.armed; btn.textContent = 'Delete'; }, 3000); return false; }
+  $('reqPage').addEventListener('change', (e) => {
+    const st = e.target.closest('[data-rstatus]');
+    if (st) { const r = reqs.find((x) => x.id === st.dataset.rstatus); r.status = st.value; r.events.push({ date: todayISO(), what: 'Marked: ' + st.selectedOptions[0].textContent }); saveReqs(); renderReqs(r.id); return; }
+    if (e.target.id === 'reqImport' && e.target.files[0]) {
+      e.target.files[0].text().then((t) => { const arr = JSON.parse(t); if (!Array.isArray(arr)) throw new Error('not a backup'); const have = new Set(reqs.map((r) => r.id)); reqs = [...arr.filter((r) => r && r.id && !have.has(r.id)), ...reqs]; saveReqs(); renderReqs(); }).catch(() => alertNote('That file is not a requests backup.'));
+    }
+  });
+  const alertNote = (m) => { const p = document.createElement('p'); p.className = 'flag'; p.textContent = m; $('reqPage').prepend(p); };
+  reqBadge();
+
   // ---- World tree: any company with a Legal Entity Identifier, live from GLEIF (browser calls the public API directly).
   const GL = 'https://api.gleif.org/api/v1/';
   const glCache = new Map();
@@ -1238,6 +1362,9 @@ Everything below is what the site showed, built only from public records. “Lin
     const onMap = h.startsWith('map');
     const onFam = h.startsWith('family/');
     const onTree = h === 'tree' || h.startsWith('tree/');
+    const onReq = h === 'requests' || h.startsWith('requests/');
+    document.body.classList.toggle('on-req', onReq);
+    if (onReq) { document.body.classList.remove('on-home', 'on-family', 'on-tree'); window.scrollTo(0, 0); renderReqs(h.split('/')[1]); return; }
     document.body.classList.toggle('on-home', !onMap && !onFam && !onTree);
     document.body.classList.toggle('on-family', onFam);
     document.body.classList.toggle('on-tree', onTree);

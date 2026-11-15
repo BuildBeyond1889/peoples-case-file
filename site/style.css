@@ -98,7 +98,10 @@ body:not(.on-home) .home{display:none}
 
 body.on-family main.wrap{display:none}
 body:not(.on-family) #familyPage{display:none}
-body.on-tree main.wrap{display:none}
+body.on-tree main.wrap,body.on-req main.wrap{display:none}
+body:not(.on-req) #reqPage{display:none}
+body.on-req #navReq{background:#171B22;color:var(--ink)}
+body.on-req #navMap,body.on-req #navHome{background:none;color:var(--muted)}
 body:not(.on-tree) #treePage{display:none}
 body.on-tree #navTree{background:#171B22;color:var(--ink)}
 body.on-tree #navMap,body.on-tree #navHome{background:none;color:var(--muted)}
@@ -209,3 +212,14 @@ body.on-family #navMap,body.on-family #navHome{background:none;color:var(--muted
 .ejbig{font-family:'Instrument Serif',Georgia,serif;font-size:54px;line-height:1}.ejbig small{font-size:20px;color:var(--muted);margin-left:6px}
 .ejparts{display:flex;flex-direction:column;gap:9px;margin:8px 0}.ejpart{display:grid;grid-template-columns:1fr;gap:3px;font-size:13px}
 .ejbar{display:block;height:9px;border-radius:4px;background:#1C212A}.ejbar i{display:block;height:9px;border-radius:4px}
+
+/* Records-request tracker */
+.rbadge{display:inline-block;margin-left:6px;min-width:18px;padding:0 5px;border-radius:999px;background:var(--coral);color:#14110a;font:600 11px var(--mono);text-align:center}
+.rlist{display:flex;flex-direction:column;gap:12px;margin-top:14px}
+.rcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.rcard.late{border-color:rgba(238,125,103,.6)}
+.rtop{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline}
+.rclock{font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--soft)}.rclock.late{color:var(--coral);border-color:rgba(238,125,103,.6)}.rclock.done{color:var(--green);border-color:rgba(134,207,160,.5)}
+.racts{display:flex;flex-wrap:wrap;gap:8px}.racts button,.racts select{background:none;border:1px solid var(--line2);color:var(--soft);border-radius:8px;padding:6px 10px;font:12.5px var(--sans);cursor:pointer}
+.rform{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:10px 0}.rform label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+.rform input,.rform select{padding:8px 10px;border-radius:8px;border:1px solid var(--line2);background:var(--card2);color:var(--ink);font:14px var(--sans)}
