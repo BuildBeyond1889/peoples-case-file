@@ -60,6 +60,8 @@
   let registry = null;    // registry.json: Kentucky Secretary of State records by normalized name
   let pendingData = null; // comments.json: permit actions pending with the state (public-comment alerts)
   let archiveIdx = null;  // archive.json: today's archived originals with SHA-256 (for evidence packs)
+  let sec = null;         // sec.json: hand-run SEC Exhibit 21 / 95 results (collector/sec_local.py)
+  let klec = null;        // klec.json: Kentucky employer lobbying lines by normalized name
   let ejData = null;      // ej.geojson: block groups with percentiles; the score is computed here from the user's weights
   const intro = $('detailBody').innerHTML;
 
@@ -76,6 +78,8 @@
       try { registry = await getJSON('data/registry.json'); } catch (e) {}
       try { pendingData = await getJSON('data/comments.json'); } catch (e) {}
       try { archiveIdx = await getJSON('data/archive.json'); } catch (e) {}
+      try { klec = await getJSON('data/klec.json'); } catch (e) {}
+      try { sec = await getJSON('data/sec.json'); } catch (e) {}
     } catch (e) {
       const s = await getJSON('data/sample.geojson');
       for (const L of LAYERS) byLayer[L.id] = { type: 'FeatureCollection', features: s.features.filter((f) => f.properties.layer === L.id) };
@@ -222,7 +226,8 @@
       ${histHtml}
       ${kyPermitsHtml(parse(p.ky_permits, []))}
       ${pendingCardHtml(p)}
-      <div class="btns"><button type="button" class="btn" data-letter="${esc(regMineLetter(p, ids, v))}">Request this mine’s MSHA records →</button>${packBtn('mine', p, p.name + ' (MSHA mine ' + ids.msha_mine + ')')}</div>
+      <div class="btns"><button type="button" class="btn" data-letter="${esc(regMineLetter(p, ids, v))}">Request this mine’s MSHA records →</button>${parse(p.ky_permits, []).length ? `<button type="button" class="btn" data-letter="${esc(regBondLetter(p, ids))}">Ask for its cleanup bonds →</button>` : ''}${packBtn('mine', p, p.name + ' (MSHA mine ' + ids.msha_mine + ')')}</div>
+      ${(sec?.by_mine?.[ids.msha_mine] || []).length ? `<div class="pendbox"><p class="eyebrow">LISTED BY PUBLIC COMPANIES (SEC EXHIBIT 95, BY MINE ID)</p><ol class="hist">${sec.by_mine[ids.msha_mine].map((h) => `<li><b>${esc(h.company)}</b><span class="when">${esc(h.form || '')} filed ${esc(h.filed || '')} · <a href="${esc(h.url)}" target="_blank" rel="noopener">mine safety disclosure</a></span></li>`).join('')}</ol><p class="note">Official-ID match: the filing lists this MSHA mine ID. Checked ${esc(sec.as_of)}.</p></div>` : ''}
       <p class="note">Owned by a public company? Its annual report lists the mine by ID (Exhibit 95): <a href="https://www.sec.gov/edgar/search/#/q=${encodeURIComponent(`"${ids.msha_mine}" OR "${String(ids.msha_mine).slice(0, 2)}-${String(ids.msha_mine).slice(2)}"`)}" target="_blank" rel="noopener">search SEC filings for ${esc(ids.msha_mine)}</a>.</p>
       ${flags.length ? `<p class="flag">Data note: ${flags.map(esc).join('; ')}</p>` : ''}
       <p class="src">SOURCE: <a href="${MSHA_LOOKUP}" target="_blank" rel="noopener">MSHA Mine Data Retrieval</a> · search mine ID ${esc(ids.msha_mine)} · pulled ${esc(p.as_of)}</p>
@@ -458,6 +463,18 @@
       ${r.officers?.length ? `<ol class="hist par">${r.officers.map((o) => `<li><span class="lbl2">${esc(o.title)}${o.when === 'initial' ? ' · at founding' : ''}</span><b>${esc(o.name)}</b></li>`).join('')}</ol>` : '<p class="muted-s">No officers, directors or members listed in the filing.</p>'}
       ${r.hidden_admin ? `<p class="note">${num(r.hidden_admin)} administrative role${r.hidden_admin === 1 ? '' : 's'} (secretary, assistant, organizer) held by individuals not shown.</p>` : ''}</div>`;
   }
+  function stateMoneyHtml(f, opList, isPerson) {
+    const names = [isPerson ? null : f.controller, ...opList.map((o) => o.name)].filter(Boolean);
+    const hits = names.flatMap((n) => (klec?.by_name?.[normName(n)] || []).map((x) => ({ n, ...x })));
+    const q = encodeURIComponent(names[0] || '');
+    return `<section class="fp-time" id="fp-state"><h2 class="serif">State-level money and lobbying</h2>
+      <h3 class="fp-sub">Kentucky lobbying (Legislative Ethics Commission)</h3>
+      ${klec ? (hits.length ? `<p class="muted-s">Lines in the Commission’s employer expenditure reports that name this family’s companies exactly. Read each in the report: names can repeat across unrelated employers.</p><ol class="hist">${hits.slice(0, 12).map((h) => `<li><b>${esc(h.n)}</b><span class="when">${esc(h.line)} · <a href="${esc(h.file)}" target="_blank" rel="noopener">report</a></span></li>`).join('')}</ol>` : '<p class="muted-s">None of this family’s company names appear in the Commission’s employer expenditure reports.</p>') : '<p class="muted-s">Not collected yet.</p>'}
+      <div class="fp-two">
+        <div class="fp-empty"><b>Campaign money: search directly</b><span>Kentucky bars corporations from giving to candidates, so company money shows up through PACs and executives. Our build can’t read the state search yet: <a href="https://secure.kentucky.gov/kref/publicsearch/AllContributors" target="_blank" rel="noopener">Kentucky Registry of Election Finance</a> · <a href="https://mi-boe.entellitrak.com/etk-mi-boe-prod/page.request.do?page=page.miboeContributionPublicSearch" target="_blank" rel="noopener">Michigan contributions search</a></span></div>
+        <div class="fp-empty"><b>Business records in other states</b><span>Search by name: <a href="https://apps.sos.wv.gov/business/corporations/" target="_blank" rel="noopener">West Virginia</a> · <a href="https://tnbear.tn.gov/Ecommerce/FilingSearch.aspx" target="_blank" rel="noopener">Tennessee</a> · <a href="https://cis.scc.virginia.gov/EntitySearch/Index" target="_blank" rel="noopener">Virginia</a> · <a href="https://icis.corp.delaware.gov/ecorp/entitysearch/NameSearch.aspx" target="_blank" rel="noopener">Delaware</a> · <a href="https://opencorporates.com/companies?q=${q}" target="_blank" rel="noopener">OpenCorporates</a></span></div>
+      </div></section>`;
+  }
   function parentsHtml(f, opList, isPerson) {
     const names = [isPerson ? null : f.controller, ...opList.map((o) => o.name)].filter(Boolean);
     const recs = leiFor(names);
@@ -471,6 +488,7 @@
       <h3 class="fp-sub" style="margin-top:22px">Who runs them: Kentucky business records</h3>
       <p class="muted-s">Officers, directors, members and managers exactly as listed with the Kentucky Secretary of State, in their corporate roles. ${registry ? (regs.length ? '' : 'None of this family’s company names matched exactly.') : 'Not collected yet.'}</p>
       ${regs.length ? `<div class="par-grid">${regs.map(regCard).join('')}</div>` : ''}
+      ${(() => { const h = names.map((n) => sec?.by_name?.[normName(n)]).filter(Boolean); return h.length ? `<h3 class="fp-sub" style="margin-top:22px">Listed as a subsidiary (SEC Exhibit 21)</h3><ol class="hist">${h.flatMap((x) => x.listed_by.map((l) => `<li><b>${esc(x.name)}</b> in <b>${esc(l.company)}</b>’s subsidiary list<span class="when">${esc(l.form || '')} filed ${esc(l.filed || '')} · <a href="${esc(l.url)}" target="_blank" rel="noopener">Exhibit 21</a> · exact-name match, check the filing</span></li>`)).join('')}</ol>` : ''; })()}
       ${same.length ? `<div class="par-same"><h3 class="fp-sub">Same name, other MSHA controller IDs</h3><p class="muted-s">Inferred, medium confidence: identical names (ignoring LLC, Inc…). It may be one company recorded more than once, or a different company with the same name.</p><ol class="hist">${same.map((x) => `<li><a href="#family/${esc(x.id)}">${esc(x.name)}</a><span class="when">MSHA controller ${esc(x.id)} · ${num(x.mines)} mine${x.mines === 1 ? '' : 's'}</span></li>`).join('')}</ol></div>` : ''}
       <div class="fp-two">
         <div class="fp-empty"><b>SEC subsidiaries and mine lists: open the links</b><span>Public companies list their subsidiaries (Exhibit 21) and every mine by MSHA ID (Exhibit 95) in annual reports. SEC blocks our build server, so search EDGAR directly: ${names.slice(0, 4).map((n) => `<a href="${sec(n)}" target="_blank" rel="noopener">${esc(n)}</a>`).join(' · ')}</span></div>
@@ -655,6 +673,7 @@
         ${mo.cases.length ? `<details open><summary>Court dockets naming these companies (${num(mo.cases.length)} of the latest searched; ${num(mo.mentions)} more only mention the name)</summary><ol class="hist">${mo.cases.slice(0, 12).map((c) => `<li><b>${esc(c.case)}</b>${c.bankruptcy ? ' <span class="hot">bankruptcy court</span>' : ''}<span class="when">${esc(c.court || c.court_id)} · filed ${esc(c.filed || '?')}${c.nature ? ' · ' + esc(c.nature) : ''} ${c.url ? `· <a href="${esc(c.url)}" target="_blank" rel="noopener">docket</a>` : ''}</span></li>`).join('')}</ol></details>` : ''}
       </section>` : ''}
       ${parentsHtml(f, opList, isPerson)}
+      ${stateMoneyHtml(f, opList, isPerson)}
       <section class="fp-time"><h2 class="serif">Who ran what, when</h2><p class="muted-s">Each bar is an operating company while this controller held it (MSHA controller records). Open bars are still running.</p>${timeline}</section>
       <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · USAspending, FEC, lobbying reports, CourtListener, GLEIF, Kentucky Secretary of State (matched by name) · Kentucky mine permits · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>
     </div>`;
@@ -762,7 +781,7 @@
     { k: 'exceed', name: 'Discharges over permit limits', src: 'EPA discharge reports over limits, last 3 years', c: '#E3A44E' },
     { k: 'tri_lbs', name: 'Toxic releases (pounds)', src: 'EPA TRI, latest year, factories reporting in the last 3 years', c: '#C39BD3' },
     { k: 'mine_cit', name: 'Mine safety citations', src: 'MSHA citations at mines, last 5 years', c: '#D9963F' },
-    { k: 'water', name: 'Drinking-water violations', src: 'Not mapped yet: federal records have no service-area boundaries', c: '#4FC3D3' },
+    { k: 'water', name: 'Drinking-water violations', src: 'Health-based violations (5 yrs) of the water systems whose service area covers it', c: '#4FC3D3' },
     { k: 'vuln', name: 'Vulnerability (income, age)', src: 'Census ACS 5-yr: below 2× poverty, under 5, over 64 (vs. the whole state)', c: '#86B6CC' },
   ];
   const EJ_PRESETS = { Balanced: { sites: 3, exceed: 3, tri_lbs: 2, mine_cit: 2, water: 3, vuln: 3 }, 'Water first': { sites: 1, exceed: 5, tri_lbs: 1, mine_cit: 0, water: 5, vuln: 2 }, 'Mining first': { sites: 2, exceed: 2, tri_lbs: 0, mine_cit: 5, water: 1, vuln: 2 } };
@@ -812,7 +831,7 @@
     const peers = ejData.features.filter((x) => x.properties.area === p.area && x.properties.score != null);
     const below = peers.filter((x) => x.properties.score < r.score).length;
     const raw = p.raw || {};
-    const rawTxt = { sites: `${num(p.n_sites || 0)} flagged site${p.n_sites === 1 ? '' : 's'}`, exceed: `${num(raw.exceed || 0)} readings over limit`, tri_lbs: `${num(raw.tri_lbs || 0)} lbs`, mine_cit: `${num(raw.mine_cit || 0)} citations (weighted)`, water: 'not mapped yet',
+    const rawTxt = { sites: `${num(p.n_sites || 0)} flagged site${p.n_sites === 1 ? '' : 's'}`, exceed: `${num(raw.exceed || 0)} readings over limit`, tri_lbs: `${num(raw.tri_lbs || 0)} lbs`, mine_cit: `${num(raw.mine_cit || 0)} citations (weighted)`, water: (p.water_systems && (typeof p.water_systems === 'string' ? JSON.parse(p.water_systems) : p.water_systems).length) ? (typeof p.water_systems === 'string' ? JSON.parse(p.water_systems) : p.water_systems).map((w) => `${w.name}: ${w.health_last5} health-based`).join('; ') : 'no matched water system',
       vuln: p.low_income_pct != null ? `${p.low_income_pct}% low income · ${p.age_pct}% under 5 or over 64` : 'no Census estimate' };
     show(`<p class="eyebrow">OPEN EJ SCORE · ${esc(p.county)}</p>
       <h2 class="card-title">${esc(p.name)}</h2>
@@ -1001,6 +1020,19 @@ Everything below is what the site showed, built only from public records. “Lin
     letters[key] = { to: ag.to, law: ag.law, subject: `Records request: ${e.name}${pids.length ? ' (permit ' + pids.join(', ') + ')' : ''}`,
       facts: (e.flags || []).map((f) => f.evidence), source: 'EPA ECHO and ICIS-NPDES public data', items,
       ids: [e.frs ? 'EPA FRS ID ' + e.frs : null, ...pids.map((x) => 'NPDES permit ' + x)].filter(Boolean) };
+    return key;
+  }
+  function regBondLetter(p, ids) {
+    const key = 'L' + (++letterSeq);
+    const permits = parse(p.ky_permits, []).map((r) => r.permit);
+    letters[key] = { to: 'Kentucky Energy and Environment Cabinet, Department for Natural Resources, Division of Mine Permits and Division of Mine Reclamation and Enforcement', law: 'the Kentucky Open Records Act, KRS 61.870 to 61.884',
+      source: 'MSHA and Kentucky Division of Mine Permits', ids: [`MSHA mine ID ${ids.msha_mine}`, ...permits.map((x) => 'Kentucky permit ' + x)],
+      subject: `Records request: reclamation bonds for ${p.name}${permits.length ? ' (KY permits ' + permits.join(', ') + ')' : ''}`,
+      facts: [`MSHA mine ID ${ids.msha_mine}${p.operator ? ', operator ' + p.operator : ''}.`, permits.length ? `The mine sits inside Kentucky mine permit area(s) ${permits.join(', ')} (Division of Mine Permits boundary data).` : null].filter(Boolean),
+      items: ['The current reclamation bond amount for each permit and increment, the bond type (surety, cash, self-bond or bond pool), and the surety company.',
+        'Any bond increases, reductions, partial releases (Phase I, II, III) and their dates.',
+        'Any notice of bond forfeiture, forfeiture orders, and the amount collected.',
+        'The cabinet’s most recent estimate of the cost to reclaim each permit area, and any reclamation contracts paid from forfeited bonds or the bond pool.'] };
     return key;
   }
   function regMineLetter(p, ids, v) {

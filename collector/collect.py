@@ -1835,7 +1835,22 @@ def _near_weight(pt, geom, cen):
     return 0.5 if d <= MILE else 0.0
 
 
-def ej_score(mines, facilities, tri_feats, yr=2024):
+WATER_AREAS = {
+    'KY': ('https://watermaps.ky.gov/arcgis/rest/services/WebMapServices/PWS_ESA_Boundaries/MapServer/0/query', 'PWSID', 'Kentucky WRIS estimated service areas'),
+    'MI': ('https://services.arcgis.com/cJ9YHowT8TU7DUyn/arcgis/rest/services/Water_System_Boundaries/FeatureServer/0/query', 'PWSID', 'EPA community water system service areas'),
+}
+
+
+def water_areas(area):
+    url, key, label = WATER_AREAS[area['state']]
+    u, body = fetch(url, {'where': '1=1', 'geometry': ','.join(map(str, area['bbox'])), 'geometryType': 'esriGeometryEnvelope', 'inSR': 4326, 'outSR': 4326,
+                          'spatialRel': 'esriSpatialRelIntersects', 'outFields': key, 'returnGeometry': 'true', 'geometryPrecision': 5,
+                          'maxAllowableOffset': 0.0005, 'f': 'geojson'}, timeout=300)
+    archive('water-service-areas', f"areas-{area['state']}-{area['county']}.geojson", u, body)
+    return [(f['properties'].get(key) or f['properties'].get(key.lower()), f['geometry']) for f in json.loads(body).get('features', []) if f.get('geometry')], label
+
+
+def ej_score(mines, facilities, tri_feats, water=None, yr=2024):
     acs = acs_block_groups(sorted({a['fips'][0] for a in EF_AREAS.values()}), yr)
     # state-wide vulnerability percentiles
     by_state = {}
@@ -1864,6 +1879,12 @@ def ej_score(mines, facilities, tri_feats, yr=2024):
         archive('census-tiger', f'block-groups-{st}{co}.geojson', url, body)
         bgs = json.loads(body).get('features', [])
         rows = []
+        viol = {s_['pwsid']: s_ for w in (water or []) if w['area'] == aid for s_ in w['systems']}
+        try:
+            wareas, wlabel = water_areas({**a, 'bbox': a['box']})
+        except Exception as e:
+            log(f'Water service areas {aid} failed:', repr(e))
+            wareas, wlabel = [], None
         for bg in bgs:
             g = bg['geometry']
             ring = g['coordinates'][0][0] if g['type'] == 'MultiPolygon' else g['coordinates'][0]
@@ -1895,30 +1916,70 @@ def ej_score(mines, facilities, tri_feats, yr=2024):
                 if w:
                     raw['mine_cit'] += w * v
                     n_mines += 1
+            served = [pid for pid, wg in wareas if pid in viol and _in_geom(cen[0], cen[1], wg)]
+            raw['water'] = float(sum(viol[pid]['health_last5'] for pid in served)) if served else None
             gid = bg['properties']['GEOID']
             d = acs.get(gid, {})
-            rows.append((bg, gid, raw, d, n_sites, n_mines))
+            rows.append((bg, gid, raw, d, n_sites, n_mines, served))
         na = [k for k in ('sites', 'exceed', 'tri_lbs', 'mine_cit') if not any(r[2][k] for r in rows)]
         pct = {k: _pctile([r[2][k] for r in rows]) for k in ('sites', 'exceed', 'tri_lbs', 'mine_cit')}
-        for bg, gid, raw, d, n_sites, n_mines in rows:
+        wvals = [r[2]['water'] for r in rows if r[2]['water'] is not None]
+        pw = _pctile(wvals) if wvals else None
+        for bg, gid, raw, d, n_sites, n_mines, served in rows:
+            wv = raw.pop('water')
             pr = bg['properties']
             props = {
                 'geoid': gid, 'area': aid, 'county': a['label'],
                 'name': f"Block group {pr.get('BLKGRP')}, tract {str(pr.get('TRACT'))[:4]}.{str(pr.get('TRACT'))[4:]}",
                 'pop': int(d.get('pop') or 0), 'low_income_pct': round(100 * d['low_income_pct'], 1) if 'low_income_pct' in d else None,
                 'age_pct': round(100 * d['age_pct'], 1) if 'age_pct' in d else None,
-                'raw': {k: round(v, 1) for k, v in raw.items()}, 'n_sites': n_sites, 'n_mines': n_mines,
-                'pct': {**{k: (None if k in na else pct[k](raw[k])) for k in raw}, 'water': None,
+                'raw': {**{k: round(v, 1) for k, v in raw.items()}, 'water': wv}, 'n_sites': n_sites, 'n_mines': n_mines,
+                'water_systems': [{'pwsid': pid, 'name': viol[pid]['name'], 'health_last5': viol[pid]['health_last5']} for pid in served],
+                'water_source': wlabel,
+                'pct': {**{k: (None if k in na else pct[k](raw[k])) for k in raw}, 'water': (pw(wv) if (pw and wv is not None) else None),
                         'vuln': d.get('p_vuln'), 'low_income': d.get('p_low_income'), 'age': d.get('p_age')},
-                'na': na + ['water'] + ([] if 'p_vuln' in d else ['vuln']),
+                'na': na + ([] if wv is not None else ['water']) + ([] if 'p_vuln' in d else ['vuln']),
                 'acs_year': f'{yr - 4}-{yr}', 'as_of': TODAY,
                 'census_url': f'https://data.census.gov/profile?g=1500000US{gid}'}
             feats.append({'type': 'Feature', 'geometry': bg['geometry'], 'properties': props})
-        log(f'EJ {aid}: {len(rows)} block groups; not available here: {na or "none"}')
+        log(f'EJ {aid}: {len(rows)} block groups; not available here: {na or "none"}; water matched for {len(wvals)} ({len(wareas)} service areas)')
     return {'type': 'FeatureCollection', 'features': feats,
             'meta': {'name': 'Open EJ Score', 'not': "EPA's EJScreen",
                      'rules': 'Records count fully inside a block group and half within a mile of it. Record percentiles are within the county '
                               '(where we collect records); Census percentiles are within the state. Census figures are ACS 5-year estimates with margins of error.'}}
+
+
+KLEC = 'https://klec.ky.gov'
+
+
+def klec_lobbying(families):
+    """Kentucky Legislative Ethics Commission employer expenditure reports (.txt). Kept: lines naming a family company exactly."""
+    u, page = fetch(KLEC + '/Reports/Pages/Employers-and-Legislative-Agents.aspx')
+    files = sorted(set(re.findall(r'href="(/Reports/Reports/EmpExp[^"]*\.txt)"', page.decode('utf-8', 'replace'))))
+    names = {}
+    for f in families:
+        if (f.get('controller_type') or '').upper().startswith('P'):
+            continue
+        for n in [f['controller']] + [o['name'] for o in f.get('operators', []) if o.get('name')]:
+            k = norm_name(n)
+            if len(k) > 5:
+                names[k] = n
+    pats = {k: re.compile(r'(?<![a-z0-9])' + re.escape(k) + r'(?![a-z0-9])') for k in names}
+    out = {'as_of': TODAY, 'source': 'Kentucky Legislative Ethics Commission, employer expenditure reports', 'files': [], 'by_name': {}}
+    for path in files:
+        try:
+            url, body = fetch(KLEC + path, timeout=300)
+        except Exception as e:
+            log('KLEC', path, repr(e)); continue
+        archive('klec', path.rsplit('/', 1)[-1], url, body)
+        out['files'].append(url)
+        for line in body.decode('latin-1').splitlines():
+            nl = norm_name(line)
+            for k, pat in pats.items():
+                if pat.search(nl):
+                    out['by_name'].setdefault(k, []).append({'line': re.sub(r'\s+', ' ', line).strip()[:300], 'file': url})
+    log(f"KLEC: {len(files)} report files; {len(out['by_name'])} family company names appear")
+    return out
 
 
 RELEASE_BASE = 'https://github.com/BuildBeyond1889/peoples-case-file/releases'
@@ -2027,6 +2088,13 @@ def main():
             report['registry'] = {'names': len(reg['by_name']), 'found': reg['matched']}
         except Exception as e:
             log('Registry failed:', repr(e))
+    if feats:
+        try:
+            kl = klec_lobbying(families)
+            write_json('klec.json', kl)
+            report['klec_names'] = len(kl['by_name'])
+        except Exception as e:
+            log('KLEC failed:', repr(e))
     try:
         com = comments(feats, facilities)
         write_json('comments.json', com)
@@ -2053,11 +2121,16 @@ def main():
     report['expired_examples'] = [f['properties']['name'] for f in facilities if any(fl['code'] == 'expired_permit' for fl in f['properties'].get('flags', []))][:10]
 
     try:
-        ej = ej_score(feats or [], facilities or [], tri_feats or [])
+        ej = ej_score(feats or [], facilities or [], tri_feats or [], water if 'water' in dir() else None)
         layers['ej'] = write_json('ej.geojson', ej)
         report['ej_block_groups'] = len(ej['features'])
     except Exception as e:
         log('EJ score failed:', repr(e))
+    sec_manual = os.path.join(ROOT, 'manual', 'sec.json')
+    if os.path.exists(sec_manual):
+        import shutil
+        shutil.copy(sec_manual, os.path.join(OUT, 'sec.json'))
+        report['sec_manual'] = json.load(open(sec_manual)).get('as_of')
     try:
         ai = archive_index()
         write_json('archive.json', ai)

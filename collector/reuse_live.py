@@ -9,9 +9,15 @@ def get(name):
     open(os.path.join(OUT, name), 'wb').write(raw)
     return raw
 idx = json.loads(get('index.json'))
-for f in list(idx.get('layers', {}).values()) + ['families.json', 'water.json', 'money.json', 'summary.json', 'parents.json', 'effluent.json', 'kypermits.json', 'registry.json', 'comments.json', 'archive.json']:
+for f in list(idx.get('layers', {}).values()) + ['families.json', 'water.json', 'money.json', 'summary.json', 'parents.json', 'effluent.json', 'kypermits.json', 'registry.json', 'comments.json', 'archive.json', 'klec.json']:
     try:
         get(f)
         print('copied', f)
     except Exception as e:
         print('skip', f, repr(e))
+
+# hand-run SEC results (collector/sec_local.py) override the live copy when present
+import shutil as _sh
+_m = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'manual', 'sec.json')
+if os.path.exists(_m):
+    _sh.copy(_m, os.path.join(OUT, 'sec.json'))
