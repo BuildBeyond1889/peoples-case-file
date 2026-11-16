@@ -1141,16 +1141,19 @@ def echo_sdwa_violations(pwsids):
                 pid = r.get('PWSID')
                 if pid not in want:
                     continue
-                vid = r.get('VIOLATION_ID')
+                vid = (r.get('VIOLATION_ID') or '').strip()
                 d = out.setdefault(pid, {})
-                if vid in d:
+                if not vid or vid in d:   # blank IDs are join artifacts, not violations
                     continue
                 def iso(x):
                     x = (x or '').strip()
                     if re.match(r'\d{2}/\d{2}/\d{4}', x):
                         return x[6:10] + '-' + x[:2] + '-' + x[3:5]
                     return x[:10]
-                d[vid] = {'begin': iso(r.get('NON_COMPL_PER_BEGIN_DATE') or r.get('COMPL_PER_BEGIN_DATE')),
+                # Compliance-period begin is the date EPA's own reports show. The non-compliance begin can be years
+                # earlier (Swartz Creek's 2024-26 lead-treatment violations carry 2020-21 there), which would push
+                # recent health violations out of the 5-year window.
+                d[vid] = {'begin': iso(r.get('COMPL_PER_BEGIN_DATE') or r.get('NON_COMPL_PER_BEGIN_DATE')),
                           'health': r.get('IS_HEALTH_BASED_IND') == 'Y', 'rule': r.get('RULE_CODE'),
                           'cat': r.get('VIOLATION_CATEGORY_CODE'), 'status': r.get('VIOLATION_STATUS')}
         log(f'ECHO SDWA: {sum(len(v) for v in out.values())} violations for {len(out)} of {len(want)} systems')
