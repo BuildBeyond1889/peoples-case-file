@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe 15: spot-check kit. For every mine on the live site: our published numbers (from the live
+"""Probe 16: spot-check kit (mines + EPA facilities + TRI + water from the live site). For every mine on the live site: our published numbers (from the live
 site data) plus every row in MSHA's downloadable Violations file, so PDFs from MSHA's live
 Violations report can be compared three ways: live report vs bulk file vs our site.
 Writes probe-out/spotcheck-mines.json (pushed to the probe-results branch by the workflow)."""
@@ -10,6 +10,7 @@ BASE = 'https://arlweb.msha.gov/OpenGovernmentData/'
 def get(url):
     with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': UA, 'Cache-Control': 'no-cache'}), timeout=900) as r:
         return r.headers.get('Last-Modified'), r.read()
+os.makedirs('probe-out', exist_ok=True)
 _, b = get(SITE + 'index.json?t=%d' % time.time()); idx = json.loads(b)
 _, b = get(SITE + idx['layers']['mines'] + '?t=%d' % time.time()); mines = json.loads(b)['features']
 site = {}
@@ -34,7 +35,20 @@ with z.open(name) as raw:
         k = r.get('MINE_ID', '').strip('"').lstrip('0')
         if k in site:
             bulk.setdefault(k, []).append([r.get(c, '') for c in keep])
-os.makedirs('probe-out', exist_ok=True)
+facs = {}
+for lay in ('facilities', 'tri'):
+    if lay in idx['layers']:
+        _, b = get(SITE + idx['layers'][lay] + '?t=%d' % time.time())
+        for f in json.loads(b)['features']:
+            p = f['properties']; ids = p.get('ids') or {}
+            k = str(ids.get('frs') or ids.get('tri') or '')
+            if k: facs.setdefault(lay, {})[k] = {x: p.get(x) for x in ('name', 'kind', 'qtrs_noncompliance', 'qtrs_nc_raw', 'penalties', 'last_inspection', 'flags', 'severity', 'flag_level', 'formal_actions_5yr', 'permits', 'effluent_qtrs', 'releases', 'tri', 'source_url', 'mine_link', 'ids')}
+water = {}
+try:
+    _, b = get(SITE + 'water.json?t=%d' % time.time()); water = json.loads(b)
+except Exception as e:
+    water = {'error': repr(e)}
+json.dump({'facs': facs, 'water': water}, open('probe-out/spotcheck-epa.json', 'w'), separators=(',', ':'))
 json.dump({'site_pulled': idx.get('pulled'), 'bulk_file': {'url': url, 'last_modified': lm}, 'cols': keep,
            'site': site, 'bulk': bulk}, open('probe-out/spotcheck-mines.json', 'w'), separators=(',', ':'))
 print('mines', len(site), 'with bulk rows', len(bulk), 'rows', sum(len(v) for v in bulk.values()))
