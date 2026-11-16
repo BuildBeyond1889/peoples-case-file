@@ -52,7 +52,7 @@
   let meta = { sample: true, pulled: null };
   let families = {};      // controller_id -> family
   let mineById = {};      // msha mine id -> feature
-  let facFeatures = [];
+  let facFeatures = [], triFeatures = [];
   const water = {};       // area id -> {label, systems}
   const letters = {};     // key -> letter spec
   let money = null;       // money.json: USAspending / FEC / CourtListener by normalized name
@@ -87,6 +87,7 @@
     $('fresh').innerHTML = meta.sample ? '<span class="sample">SAMPLE DATA</span>' : 'DATA PULLED ' + esc(meta.pulled) + ' · ARCHIVED';
     for (const f of (byLayer.mines || { features: [] }).features) mineById[f.properties.ids?.msha_mine] = f;
     facFeatures = (byLayer.facilities || { features: [] }).features;
+    triFeatures = (byLayer.tri || { features: [] }).features;
 
     for (const L of LAYERS) {
       const data = byLayer[L.id] || { type: 'FeatureCollection', features: [] };
@@ -181,6 +182,93 @@
       ${cors.map((c) => `<div class="corr"><p class="eyebrow">CORRECTED ${esc(c.date || '')}</p><p class="muted-s">Was: ${esc(c.was || '')}<br>Now: ${esc(c.now || '')}${c.why ? '<br>Why: ' + esc(c.why) : ''}</p></div>`).join('')}
       <p class="recl"><a href="${esc(issueUrl('correction', kind, id, name))}" target="_blank" rel="noopener">Something wrong? Request a correction</a><a href="${esc(issueUrl('reply', kind, id, name))}" target="_blank" rel="noopener">Named here? Publish a reply</a></p>
     </div>`;
+  }
+
+  // ---- Spot check: a random sample of records, our numbers next to the agency's own page ----
+  function seeded(seed) { let x = 0; for (const c of String(seed)) x = (x * 31 + c.charCodeAt(0)) >>> 0; return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 2 ** 32); }
+  function pickN(arr, n, rnd) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a.slice(0, n); }
+  const CHK_KEY = 'pcf.check';
+  let chk = (() => { try { return JSON.parse(localStorage.getItem(CHK_KEY)) || {}; } catch (e) { return {}; } })();
+  const chkSave = () => { try { localStorage.setItem(CHK_KEY, JSON.stringify(chk)); } catch (e) {} };
+  function copyBtn(v) { return `<button type="button" class="linkbtn" data-copy="${esc(v)}">copy ID</button>`; }
+
+  function checkItems() {
+    const rnd = seeded('pcf-check-' + (chk.round || 1));
+    const items = [];
+    const mines = Object.values(mineById);
+    const active = mines.filter((f) => f.properties.status === 'Active');
+    for (const f of [...pickN(active, 3, rnd), ...pickN(mines.filter((f) => f.properties.status !== 'Active' && (f.properties.citations || 0) > 0), 5, rnd)]) {
+      const p = f.properties, ids = parse(p.ids, {}), v = parse(p.viol, {}) || {};
+      items.push({ key: 'mine:' + ids.msha_mine, kind: 'mine', name: p.name, id: ids.msha_mine, idLabel: 'MSHA mine ID',
+        src: MSHA_LOOKUP, srcName: 'MSHA Mine Data Retrieval System', how: 'Paste the mine ID, open the mine, then compare its overview and its Violations tab.',
+        rows: [['Status', p.status || '—'], ['Operator now', p.operator || '—'], ['Controller now', p.parent || '—'],
+          ['Citations, all owners', num(v.total || 0) + ' (we leave out contractor and vacated citations, so MSHA’s count can be a bit higher)'], ['Penalties owed', usd(v.due || 0)]] });
+    }
+    const hi = facFeatures.filter((f) => f.properties.flag_level === 2), rest = facFeatures.filter((f) => f.properties.flag_level !== 2 && f.properties.source_url);
+    for (const f of [...pickN(hi, 4, rnd), ...pickN(rest, 4, rnd)]) {
+      const p = f.properties, ids = parse(p.ids, {}), flags = parse(p.flags, []);
+      items.push({ key: 'facility:' + ids.frs, kind: 'facility', name: p.name, id: ids.frs, idLabel: 'EPA registry ID',
+        src: p.source_url || 'https://echo.epa.gov/facilities/facility-search', srcName: 'EPA ECHO facility report', how: 'Check the summary at the top and the 3-year compliance table.',
+        rows: [['Quarters out of compliance (last 12)', p.qtrs_noncompliance == null ? '—' : num(p.qtrs_noncompliance)], ['Penalties on record (5 yrs)', p.penalties == null ? '—' : usd(p.penalties)],
+          ['Last inspection', p.last_inspection || 'none on record'], ['Our flags', flags.length ? flags.map((x) => x.label).join('; ') : 'none']] });
+    }
+    for (const f of pickN(triFeatures.filter((f) => parse(f.properties.releases, null)), 3, rnd)) {
+      const p = f.properties, r = parse(p.releases, {}), t = parse(p.tri, {});
+      items.push({ key: 'tri:' + (parse(p.ids, {}).tri || ''), kind: 'tri', name: p.name, id: parse(p.ids, {}).tri, idLabel: 'TRI ID',
+        src: r.source_url || p.source_url, srcName: 'EPA TRI facility profile', how: 'Find the same year in the release table.',
+        rows: [['Year', r.latest_year], ['Total released', num(r.latest_total) + ' lbs'], ['Parent company reported', t.parent || 'none']] });
+    }
+    const sys = Object.values(water).flatMap((w) => (w.systems || []).map((x) => ({ ...x, area: w.label })));
+    for (const x of pickN(sys, 4, rnd)) {
+      items.push({ key: 'water:' + x.pwsid, kind: 'water', name: x.name, id: x.pwsid, idLabel: 'Water system ID (PWSID)',
+        src: 'https://sdwis.epa.gov/ords/sfdw_pub/r/sfdw/sdwis_fed_reports_public/200', srcName: 'EPA drinking water reports (SDWIS)', how: 'Search the water system ID, then open its violations.',
+        rows: [['Area', x.area], ['People served', x.population ? num(x.population) : '—'], ['Health-based violations (5 yrs)', num(x.health_last5 || 0)], ['Violations on record', num(x.violations || 0)]] });
+    }
+    return items.filter((i) => i.id);
+  }
+
+  function renderCheck() {
+    const el = $('checkPage');
+    if (meta.sample) { el.innerHTML = '<div class="fp-wrap prose"><h1 class="serif">Spot check</h1><p>The live data hasn’t loaded, so there’s nothing to check yet.</p></div>'; return; }
+    const items = checkItems(); const res = chk.res || (chk.res = {});
+    const done = items.filter((i) => res[i.key]), bad = done.filter((i) => res[i.key].v === 'no');
+    el.innerHTML = `<div class="fp-wrap prose wide">
+      <div class="fp-crumb"><a href="#">Home</a> / <span>Spot check</span></div>
+      <header><p class="eyebrow">QUALITY CONTROL · ROUND ${num(chk.round || 1)}</p><h1 class="serif">Spot check</h1>
+      <p class="lede2">${num(items.length)} records picked at random. For each one: open the agency’s own page, compare, and mark it. Takes about 2 minutes a record.</p></header>
+      <div class="chkbar"><span><b>${num(done.length)}</b> of ${num(items.length)} checked · <b class="${bad.length ? 'hot' : ''}">${num(bad.length)}</b> don’t match</span>
+        <span class="btns"><button type="button" class="btn" id="chkCopy">Copy results</button><button type="button" class="btn" id="chkNew">New sample</button></span></div>
+      <p class="muted-s">What counts as a match: same name, same IDs, same numbers. Small timing gaps are fine (the agency may have updated since we pulled on ${esc(meta.pulled)}). Your marks stay in this browser.</p>
+      ${['mine', 'facility', 'tri', 'water'].map((k) => {
+        const group = items.filter((i) => i.kind === k); if (!group.length) return '';
+        const title = { mine: 'Mines (MSHA)', facility: 'EPA-regulated sites (half are high-priority flags)', tri: 'Toxic release reporters (TRI)', water: 'Drinking water systems' }[k];
+        return `<article><h2>${title}</h2>${group.map((i) => { const r = res[i.key] || {};
+          return `<div class="chk ${r.v ? 'is-' + r.v : ''}" data-ck="${esc(i.key)}">
+            <div class="chk-h"><b>${esc(i.name)}</b><span class="muted-s">${esc(i.idLabel)} ${esc(i.id)} ${copyBtn(i.id)}</span></div>
+            <dl class="chk-rows">${i.rows.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl>
+            <p class="muted-s"><a href="${esc(i.src)}" target="_blank" rel="noopener">Open ${esc(i.srcName)} ↗</a> · ${esc(i.how)}</p>
+            <div class="chk-btns" role="group" aria-label="Result">
+              <button type="button" data-cv="yes" aria-pressed="${r.v === 'yes'}">Matches</button>
+              <button type="button" data-cv="no" aria-pressed="${r.v === 'no'}">Doesn’t match</button>
+              <button type="button" data-cv="unsure" aria-pressed="${r.v === 'unsure'}">Can’t tell</button>
+            </div>
+            ${r.v === 'no' || r.v === 'unsure' ? `<label class="chk-note">What’s different?<textarea rows="2" data-cnote>${esc(r.note || '')}</textarea></label>
+              ${r.v === 'no' ? `<p><a href="${esc(issueUrl('correction', i.kind, i.id, i.name))}" target="_blank" rel="noopener">Report it as a correction ↗</a></p>` : ''}` : ''}
+          </div>`; }).join('')}</article>`; }).join('')}
+    </div>`;
+    el.onclick = async (e) => {
+      const cp = e.target.closest('[data-copy]');
+      if (cp) { try { await navigator.clipboard.writeText(cp.dataset.copy); cp.textContent = 'copied'; } catch (err) {} return; }
+      const b = e.target.closest('[data-cv]');
+      if (b) { const k = b.closest('[data-ck]').dataset.ck; res[k] = { ...(res[k] || {}), v: b.dataset.cv, at: new Date().toISOString().slice(0, 10) }; chkSave(); renderCheck(); return; }
+      if (e.target.id === 'chkNew') { chk = { round: (chk.round || 1) + 1, res: {} }; chkSave(); renderCheck(); window.scrollTo(0, 0); return; }
+      if (e.target.id === 'chkCopy') {
+        const txt = `Spot check round ${chk.round || 1}, data pulled ${meta.pulled}\n` + items.map((i) => { const r = res[i.key] || {};
+          return `${(r.v || 'not checked').toUpperCase()} · ${i.kind} ${i.id} · ${i.name}${r.note ? ' · ' + r.note : ''}`; }).join('\n');
+        try { await navigator.clipboard.writeText(txt); e.target.textContent = 'Copied: paste it to Claude'; } catch (err) { e.target.textContent = 'Copy failed'; }
+      }
+    };
+    el.oninput = (e) => { const t = e.target.closest('[data-cnote]'); if (!t) return; const k = t.closest('[data-ck]').dataset.ck; res[k] = { ...(res[k] || {}), note: t.value }; chkSave(); };
   }
 
   function renderCorrections() {
@@ -1462,11 +1550,13 @@ Everything below is what the site showed, built only from public records. “Lin
     const onFam = h.startsWith('family/');
     const onTree = h === 'tree' || h.startsWith('tree/');
     const onReq = h === 'requests' || h.startsWith('requests/');
-    const onHow = h === 'how' || h.startsWith('how-'), onCorr = h === 'corrections';
+    const onHow = h === 'how' || h.startsWith('how-'), onCorr = h === 'corrections', onCheck = h === 'check';
     document.body.classList.toggle('on-how', onHow);
     document.body.classList.toggle('on-corr', onCorr);
-    if (onHow || onCorr) {
+    document.body.classList.toggle('on-check', onCheck);
+    if (onHow || onCorr || onCheck) {
       document.body.classList.remove('on-home', 'on-family', 'on-tree', 'on-req');
+      if (onCheck) { window.scrollTo(0, 0); await ready; await recLoaded; renderCheck(); return; }
       if (onCorr) { window.scrollTo(0, 0); await recLoaded; renderCorrections(); return; }
       const t = h.startsWith('how-') && document.getElementById(h);
       if (t) t.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0);

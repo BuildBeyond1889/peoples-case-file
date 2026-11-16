@@ -249,3 +249,21 @@ body.on-how #navMap,body.on-how #navHome,body.on-corr #navMap,body.on-corr #navH
 .reply{padding:12px 14px;border-radius:10px;background:#10151B;border:1px solid #23303A}.reply .rtext{color:var(--ink);white-space:pre-wrap;margin:6px 0}
 .corr{padding:10px 14px;border-radius:10px;background:#12140F;border:1px solid #2A3122}
 .corrlog{list-style:none;padding:0}.corrlog li{display:flex;flex-direction:column;gap:4px;padding:12px 0;border-bottom:1px solid var(--line)}.corrlog .when{font:500 11px var(--mono);color:var(--muted)}
+
+/* Spot check */
+body.on-check main.wrap,body.on-check .home{display:none}
+body:not(.on-check) #checkPage{display:none}
+body.on-check #navMap,body.on-check #navHome{background:none;color:var(--muted)}
+.prose.wide{max-width:980px}
+.chkbar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--line2)}
+.chkbar .hot,.prose .hot{color:var(--coral)}
+.chk{border:1px solid var(--line2);border-radius:12px;padding:14px 16px;margin:12px 0;background:var(--card2);display:flex;flex-direction:column;gap:8px}
+.chk.is-yes{border-color:#2F5A3F}.chk.is-no{border-color:var(--coral)}.chk.is-unsure{border-color:var(--amber)}
+.chk-h{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;justify-content:space-between}.chk-h b{font-size:17px}
+.chk-rows{display:grid;grid-template-columns:minmax(0,240px) minmax(0,1fr);gap:4px 14px;margin:0;font-size:14.5px}.chk-rows dt{color:var(--muted)}.chk-rows dd{margin:0;color:var(--ink)}
+@media (max-width:640px){.chk-rows{grid-template-columns:minmax(0,1fr)}.chk-rows dd{margin-bottom:6px}}
+.chk-btns{display:flex;flex-wrap:wrap;gap:8px}.chk-btns button{min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line2);background:transparent;color:var(--soft);font:600 13px var(--sans);cursor:pointer}
+.chk-btns button[aria-pressed=true][data-cv=yes]{background:#1E3A28;border-color:#2F5A3F;color:#BFE6CC}
+.chk-btns button[aria-pressed=true][data-cv=no]{background:#3A1E1A;border-color:var(--coral);color:#FFD2C8}
+.chk-btns button[aria-pressed=true][data-cv=unsure]{background:#3A2E18;border-color:var(--amber);color:#F5DDB2}
+.chk-note{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}.chk-note textarea{background:var(--bg);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:8px;font:inherit}

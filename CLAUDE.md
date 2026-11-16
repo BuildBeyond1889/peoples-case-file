@@ -111,6 +111,7 @@ It needs two depths: **Simple** for residents and **Pro** for lawyers and journa
   - neighbor reports
   - ask-anything with citations
 - **Corrections and right of reply (built Nov 16):** `#corrections` page; per-record "Request a correction" / "Publish a reply" links open GitHub issue forms (`.github/ISSUE_TEMPLATE/`) pre-filled with the record key (`mine:<id>`, `family:<id>`, `facility:<frs>`, `tri:<id>`). To publish: verify against the record (and the sender, for replies), then add an entry to `site/records/corrections.json` or `site/records/replies.json`. It shows on the record and in the log. Never delete entries.
+- **Spot check:** `#check`: a random sample (8 mines, 8 EPA sites with half high-priority, 3 TRI, 4 water systems), our numbers beside a link to the agency's page, marked Matches / Doesn't match / Can't tell (kept in the browser), with "Copy results" for pasting to Claude and "New sample" for another round. Lu runs it before nationwide expansion.
 - **How this works:** `#how` (sections `#how-sources` … `#how-fix`). Keep it in sync whenever a flag rule, match rule or score formula changes in `collect.py` or `app.js`.
 - **Individuals as MSHA controllers:** some controllers are people.
   - Their family pages show the name **only as listed in MSHA records**, labelled "individual, as named in MSHA records", with no address or personal details.
