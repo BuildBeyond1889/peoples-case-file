@@ -6,11 +6,16 @@
 <title>The People's Case · Curtain Puller</title>
 <meta name="description" content="Who's really behind it? Mines, facilities, owners and their records, from public sources, every fact linked to its source.">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="People's Case">
 <meta name="theme-color" content="#0A0C0F">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body class="on-home">
 <header class="top">
@@ -26,6 +31,7 @@
     <button type="button" id="mSimple" aria-pressed="true">Simple</button>
     <button type="button" id="mPro" aria-pressed="false">Pro</button>
   </div>
+  <button type="button" id="installBtn" class="installbtn" hidden>Install app</button>
   <span class="pulled" id="fresh">Loading…</span>
 </header>
 <section id="home" class="home" aria-label="Home">
@@ -86,6 +92,6 @@
 </main>
 <footer class="foot">Public records only · every fact links to its source · “linked to” never means “did this” · not legal advice · <a href="https://github.com/BuildBeyond1889/peoples-case-file" target="_blank" rel="noopener">How this works</a></footer>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=25"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>

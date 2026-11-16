@@ -226,3 +226,4 @@ body.on-family #navMap,body.on-family #navHome{background:none;color:var(--muted
 
 [hidden]{display:none!important}
 .silence li .when,.wsys .when{display:block;margin-top:2px}
+.installbtn{min-height:34px;padding:0 12px;border:1px solid var(--coral,#EE7D67);border-radius:999px;background:transparent;color:var(--coral,#EE7D67);font:600 12px var(--sans,Inter,system-ui,sans-serif);cursor:pointer}.installbtn:hover{background:var(--coral,#EE7D67);color:#14110a}

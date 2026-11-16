@@ -1471,4 +1471,14 @@ Everything below is what the site showed, built only from public records. “Lin
     $('caseHarlan').textContent = `${num(mines.length)} mines, ${num(Object.keys(families).length)} controllers, ${num(linked)} mines linked to EPA water permits.`;
   });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Install as an app (Chrome/Edge on desktop + Android). Hidden once installed or when the browser can't.
+  let installEvt = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; const b = $('installBtn'); if (b) b.hidden = false; });
+  window.addEventListener('appinstalled', () => { installEvt = null; const b = $('installBtn'); if (b) b.hidden = true; });
+  if ($('installBtn')) $('installBtn').onclick = async () => {
+    if (!installEvt) return;
+    installEvt.prompt();
+    try { await installEvt.userChoice; } catch (e) {}
+    installEvt = null; $('installBtn').hidden = true;
+  };
 })();
