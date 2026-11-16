@@ -1106,7 +1106,8 @@ def tri_releases(tri_feats, years=10):
         ch = sorted(by_year[latest]['chems'].items(), key=lambda kv: -kv[1]['lbs'])
         f['properties']['releases'] = {
             'unit': 'pounds', 'source': 'EPA TRI Basic Data Files (self-reported by the facility)',
-            'source_url': f'https://enviro.epa.gov/triexplorer/release_fac_profile?TRI={fid}',
+            # TRI Explorer is offline until 2027; EPA's facility report (ECHO) has a Toxics Release Inventory section
+            'source_url': f['properties'].get('source_url') or 'https://www.epa.gov/toxics-release-inventory-tri-program/tri-data-and-tools',
             'by_year': {str(y): round(v['total']) for y, v in sorted(by_year.items())},
             'latest_year': latest, 'latest_total': round(by_year[latest]['total']),
             'latest_air': round(by_year[latest]['air']), 'latest_water': round(by_year[latest]['water']),

@@ -212,12 +212,12 @@
       items.push({ key: 'facility:' + ids.frs, kind: 'facility', name: p.name, id: ids.frs, idLabel: 'EPA registry ID',
         src: p.source_url || 'https://echo.epa.gov/facilities/facility-search', srcName: 'EPA ECHO facility report', how: 'Check the summary at the top and the 3-year compliance table.',
         rows: [['Quarters out of compliance (last 12)', p.qtrs_noncompliance == null ? '—' : num(p.qtrs_noncompliance)], ['Penalties on record (5 yrs)', p.penalties == null ? '—' : usd(p.penalties)],
-          ['Last inspection', p.last_inspection || 'none on record'], ['Our flags', flags.length ? flags.map((x) => x.label).join('; ') : 'none']] });
+          ['Last compliance check (any EPA program)', p.last_inspection || 'none on record'], ['Our flags', flags.length ? flags.map((x) => x.label).join('; ') : 'none']] });
     }
     for (const f of pickN(triFeatures.filter((f) => parse(f.properties.releases, null)), 3, rnd)) {
       const p = f.properties, r = parse(p.releases, {}), t = parse(p.tri, {});
       items.push({ key: 'tri:' + (parse(p.ids, {}).tri || ''), kind: 'tri', name: p.name, id: parse(p.ids, {}).tri, idLabel: 'TRI ID',
-        src: r.source_url || p.source_url, srcName: 'EPA TRI facility profile', how: 'Find the same year in the release table.',
+        src: triLink(r, p), srcName: 'EPA facility report', how: 'Open the Pollutants section, then Toxics Release Inventory, and find the same year. (EPA’s TRI Explorer is offline until 2027.)',
         rows: [['Year', r.latest_year], ['Total released', num(r.latest_total) + ' lbs'], ['Parent company reported', t.parent || 'none']] });
     }
     const sys = Object.values(water).flatMap((w) => (w.systems || []).map((x) => ({ ...x, area: w.label })));
@@ -325,6 +325,7 @@
   // MSHA's downloadable data says "NonProducing" where its website says "NonProdActive": a mine that is open but not producing.
   const MINE_STATUS = { NonProducing: 'Non-producing (open, not producing coal)', NonProdActive: 'Non-producing (open, not producing coal)', TempIdled: 'Temporarily idled', 'Temporarily Idled': 'Temporarily idled' };
   const mineStatus = (st) => MINE_STATUS[st] || st || '';
+  const triLink = (r, p) => (r && r.source_url && !/triexplorer/.test(r.source_url) ? r.source_url : '') || p.source_url || 'https://www.epa.gov/toxics-release-inventory-tri-program/tri-data-and-tools';
   function kindLabel(k, dflt) {
     const parts = String(k || '').split(/,\s*(?=\d{3,6}:)/).map((x) => x.replace(/^\d{3,6}:\s*/, '').trim()).filter(Boolean);
     if (!parts.length) return dflt;
@@ -445,7 +446,7 @@
       ${permits.map(permitHtml).join('')}
       ${kyPermitsHtml(parse(p.ky_permits, []))}
       ${triInfo && triInfo.parent ? `<div class="row"><span class="lbl">Parent company (reported to EPA TRI)</span><span>${esc(triInfo.parent)}${triInfo.foreign_parent ? ' · foreign parent ' + esc(triInfo.foreign_parent) : ''}</span></div>` : ''}
-      <div class="row"><span class="lbl">Last inspection, any EPA program</span><span>${esc(p.last_inspection || 'none on record')}</span></div>
+      <div class="row"><span class="lbl">Last compliance check, any EPA program</span><span>${esc(p.last_inspection || 'none on record')}</span></div>
       <div class="row"><span class="lbl">Formal enforcement, 5 yrs</span><span>${p.formal_actions_5y ?? '—'}</span></div>
       ${link ? `<div class="btns"><button type="button" class="btn" data-mine="${esc(link.mine_id)}">${link.confidence === 'high' ? 'Same Kentucky mine permit as' : 'Possibly the same site as'} mine: ${esc(link.mine)} →</button></div>` : ''}
       <div class="btns">${packBtn('facility', { ...p, ids }, p.name + (ids.frs ? ' (EPA FRS ' + ids.frs + ')' : ''))}</div>
@@ -552,7 +553,7 @@
           ${triChart(r.by_year)}
           <ol class="hist">${r.chemicals.slice(0, 8).map((c) => `<li><b>${esc(c.name)}</b>${c.carcinogen ? ' <span class="hot">carcinogen</span>' : ''}${c.pfas ? ' <span class="hot">PFAS</span>' : ''}${c.pbt ? ' <span class="warm">builds up in bodies</span>' : ''}<span class="when">${num(c.lbs)} lbs · air ${num(c.air)} · water ${num(c.water)}</span></li>`).join('')}</ol>
           <p class="note">Self-reported by the facility. Most releases are legal under permits; this shows amounts, not violations. Amounts are not health effects.</p>
-          <p class="src"><a href="${esc(r.source_url)}" target="_blank" rel="noopener">EPA TRI facility profile</a></p>`; })()}
+          <p class="src"><a href="${esc(triLink(r, p))}" target="_blank" rel="noopener">EPA facility report: Pollutants, Toxics Release Inventory</a> (EPA’s TRI Explorer is offline until 2027)</p>`; })()}
       <div class="btns">${packBtn('tri', p, p.name + ' (TRI ' + (ids.tri || '') + ')')}</div>
       <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA facility report</a>` : 'EPA Toxics Release Inventory'} · pulled ${esc(p.as_of)}</p>
       ${recordActions('tri', ids.tri || ids.frs, p.name)}
