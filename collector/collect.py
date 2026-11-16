@@ -1123,9 +1123,47 @@ VIOL_CAT = {'MCL': 'Over the legal limit', 'MRDL': 'Over the disinfectant limit'
             'MR': 'Monitoring or reporting', 'MON': 'Monitoring', 'RPT': 'Reporting', 'Other': 'Other'}
 
 
+ECHO_SDWA = 'https://echo.epa.gov/files/echodownloads/SDWA_latest_downloads.zip'
+
+
+def echo_sdwa_violations(pwsids):
+    """EPA's full national drinking-water download (ECHO SDWA). Envirofacts' VIOLATION table is badly incomplete:
+    spot check KY0480498 had 19 there, 101 distinct violations here. One row per violation x enforcement action,
+    so violations are counted by distinct VIOLATION_ID. Returns {pwsid: [violation dicts]} or None on failure."""
+    try:
+        url, body = fetch(ECHO_SDWA, timeout=1500)
+        archive('echo-sdwa', 'SDWA_latest_downloads.zip', url, body)
+        z = zipfile.ZipFile(io.BytesIO(body))
+        name = next(n for n in z.namelist() if 'VIOLATIONS' in n.upper())
+        want, out = set(pwsids), {}
+        with z.open(name) as raw:
+            for r in csv.DictReader(io.TextIOWrapper(raw, encoding='latin-1', newline='')):
+                pid = r.get('PWSID')
+                if pid not in want:
+                    continue
+                vid = r.get('VIOLATION_ID')
+                d = out.setdefault(pid, {})
+                if vid in d:
+                    continue
+                def iso(x):
+                    x = (x or '').strip()
+                    if re.match(r'\d{2}/\d{2}/\d{4}', x):
+                        return x[6:10] + '-' + x[:2] + '-' + x[3:5]
+                    return x[:10]
+                d[vid] = {'begin': iso(r.get('NON_COMPL_PER_BEGIN_DATE') or r.get('COMPL_PER_BEGIN_DATE')),
+                          'health': r.get('IS_HEALTH_BASED_IND') == 'Y', 'rule': r.get('RULE_CODE'),
+                          'cat': r.get('VIOLATION_CATEGORY_CODE'), 'status': r.get('VIOLATION_STATUS')}
+        log(f'ECHO SDWA: {sum(len(v) for v in out.values())} violations for {len(out)} of {len(want)} systems')
+        return {k: list(v.values()) for k, v in out.items()}
+    except Exception as e:
+        log('ECHO SDWA download failed, falling back to Envirofacts:', repr(e))
+        return None
+
+
 def sdwis():
     out = []
     cutoff = str(int(TODAY[:4]) - 5) + TODAY[4:]
+    pending = []
     for aid, a in EF_AREAS.items():
         areas = []
         for cty in (a['county'], a['county'].upper(), a['county'] + ' County', a['county'].upper() + ' COUNTY'):
@@ -1148,30 +1186,40 @@ def sdwis():
                         pwsids.append(w['pwsid'])
             pwsids = sorted(set(pwsids))
             basis = "system's listed city is in the county (county-served records missing)"
+        pending.append((aid, a, pwsids, basis))
+    full = echo_sdwa_violations({p for _, _, ps, _ in pending for p in ps})
+    for aid, a, pwsids, basis in pending:
         systems = []
         for pid in pwsids:
             ws = ef(f'WATER_SYSTEM/PWSID/{pid}/JSON', f'sdwis-ws-{pid}.json')
             if not ws:
                 continue
             w = ws[0]
-            v = ef(f'VIOLATION/PWSID/{pid}/JSON', f'sdwis-viol-{pid}.json')
-            def day(x):
-                return (x.get('compl_per_begin_date') or '')[:10]
-            recent = [x for x in v if day(x) >= cutoff]
+            if full is not None:
+                v = full.get(pid, [])
+                src_note = 'EPA ECHO drinking water (SDWA) national download'
+            else:
+                v = [{'begin': (x.get('compl_per_begin_date') or '')[:10], 'health': x.get('is_health_based_ind') == 'Y',
+                      'rule': str(x.get('rule_code')), 'cat': x.get('violation_category_code'),
+                      'status': 'Unaddressed' if x.get('compliance_status_code') in ('O', 'K') else 'Resolved'}
+                     for x in ef(f'VIOLATION/PWSID/{pid}/JSON', f'sdwis-viol-{pid}.json')]
+                src_note = 'EPA Envirofacts SDWIS (fallback; known to be incomplete)'
+            recent = [x for x in v if (x['begin'] or '') >= cutoff]
             systems.append({
                 'pwsid': pid, 'name': w.get('pws_name'), 'type': w.get('pws_type_code'), 'source': w.get('gw_sw_code'),
                 'population': w.get('population_served_count'), 'city': w.get('city_name'),
-                'violations': len(v), 'health_based': sum(1 for x in v if x.get('is_health_based_ind') == 'Y'),
-                'last5': len(recent), 'health_last5': sum(1 for x in recent if x.get('is_health_based_ind') == 'Y'),
-                'lead_copper': sum(1 for x in v if str(x.get('rule_code')) == '350'),
-                'open': sum(1 for x in v if x.get('compliance_status_code') in ('O', 'K')),
-                'by_category': {VIOL_CAT.get(k, k): sum(1 for x in v if x.get('violation_category_code') == k)
-                                for k in sorted({x.get('violation_category_code') for x in v if x.get('violation_category_code')})},
-                'latest': max((day(x) for x in v), default=None),
+                'violations': len(v), 'health_based': sum(1 for x in v if x['health']),
+                'last5': len(recent), 'health_last5': sum(1 for x in recent if x['health']),
+                'lead_copper': sum(1 for x in v if str(x['rule']) == '350'),
+                'open': sum(1 for x in v if x['status'] in ('Unaddressed', 'Addressed')),
+                'by_category': {VIOL_CAT.get(k, k): sum(1 for x in v if x['cat'] == k)
+                                for k in sorted({x['cat'] for x in v if x['cat']})},
+                'latest': max((x['begin'] for x in v if x['begin']), default=None),
+                'violations_source': src_note,
             })
         systems.sort(key=lambda s: (-(s['health_last5']), -(s['health_based']), -(s['population'] or 0)))
         out.append({'area': aid, 'label': a['label'], 'center': a['center'], 'systems': systems, 'basis': basis,
-                    'source': 'EPA Safe Drinking Water Information System (Envirofacts)', 'as_of': TODAY})
+                    'source': 'EPA Safe Drinking Water Information System: systems from Envirofacts, violations from EPA ECHO\'s national drinking water download' if full is not None else 'EPA Safe Drinking Water Information System (Envirofacts)', 'as_of': TODAY})
         log(f"SDWIS {aid}: {len(systems)} active systems")
     feats = [{'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': o['center']}, 'properties': {
         'name': 'Water systems serving ' + o['label'], 'area': o['area'], 'kind': 'Drinking water systems',
