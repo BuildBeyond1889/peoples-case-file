@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe 18 (17 extended to 4 systems): drinking-water undercount. EPA's SDWIS Federal Report shows 155 violations for KY0480498
+"""Probe 19 (violation IDs for MI0006505, KY0480498): drinking-water undercount. EPA's SDWIS Federal Report shows 155 violations for KY0480498
 (Black Mtn Utility/Louellen); our site (Envirofacts VIOLATION/PWSID) shows 19. Compare sources:
   1. Envirofacts VIOLATION by PWSID (what we use), with and without paging
   2. ECHO SDWA bulk download (SDWA_VIOLATIONS_ENFORCEMENT.csv), the national file
@@ -38,6 +38,8 @@ try:
                 rows.append(r)
     out['per_system'] = {p: {'rows': sum(1 for r in rows if r['PWSID'] == p), 'distinct': len({r['VIOLATION_ID'] for r in rows if r['PWSID'] == p}),
                              'distinct_pair': len({(r['VIOLATION_ID'], r.get('FACILITY_ID')) for r in rows if r['PWSID'] == p})} for p in PIDS}
+    out['ids'] = {p: sorted({(r['VIOLATION_ID'], r.get('RULE_CODE'), r.get('IS_HEALTH_BASED_IND'), r.get('VIOLATION_CODE'),
+                             r.get('NON_COMPL_PER_BEGIN_DATE') or r.get('COMPL_PER_BEGIN_DATE')) for r in rows if r['PWSID'] == p}) for p in ('MI0006505', 'KY0480498')}
     rows = [r for r in rows if r['PWSID'] == PID]
     vids = {r.get('VIOLATION_ID') for r in rows}
     out['echo_sdwa'].update({'file': name, 'rows': len(rows), 'distinct_violation_ids': len(vids),
