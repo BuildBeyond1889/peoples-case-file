@@ -368,9 +368,19 @@
       `<span class="when">${e.confidence === 'high' ? 'Same site (high confidence, state permit record)' : 'Possibly the same site (' + esc(e.confidence) + ' confidence, inferred)'}: ${esc((e.basis || []).join(' · '))}</span>` +
       (e.source_url ? `<span class="when"><a href="${esc(e.source_url)}" target="_blank" rel="noopener">EPA ECHO report</a>${e.frs ? ' <span class="pro">· FRS ' + esc(e.frs) + '</span>' : ''}</span>` : '') +
       `</li>`).join('')}</ol><p class="note">MSHA and EPA don’t share an ID number, so these matches come from location plus coal-mining permit codes or shared names. Check the EPA report before relying on one.</p></details>` : '';
-    const histHtml = hist.length ? `<details ${hist.length <= 4 ? 'open' : ''}><summary>Who ran it, who controlled it (${hist.length})</summary><ol class="hist">${hist.slice().reverse().map((h) =>
-      `<li><b>${esc(h.operator || 'Unknown operator')}</b> <span class="muted-s">operator</span>` +
-      (h.controller ? `<br><span class="muted-s">controlled by</span> ${personLabel(h.controller, h.controller_type)}` : '') +
+    const stints = [];
+    for (const h of hist) {
+      let st = stints.find((x) => x.operator === h.operator && x.op_start === h.op_start);
+      if (!st) stints.push(st = { operator: h.operator, op_start: h.op_start, op_end: h.op_end, ctls: [] });
+      if (!h.controller) continue;
+      const s0 = [h.op_start, h.ctl_start].filter(Boolean).sort().pop() || '';
+      const e0 = [h.op_end, h.ctl_end].filter(Boolean).sort()[0] || '';
+      if (s0 && e0 && s0 > e0) continue;   // this controller's control of the operator fell outside its time at this mine
+      st.ctls.push({ name: h.controller, type: h.controller_type, s0, e0 });
+    }
+    const histHtml = stints.length ? `<details ${stints.length <= 4 ? 'open' : ''}><summary>Who ran it, who controlled it (${stints.length})</summary><ol class="hist">${stints.slice().reverse().map((h) =>
+      `<li><b>${esc(h.operator || 'Not named in MSHA records')}</b> <span class="muted-s">operator</span>` +
+      h.ctls.map((c) => `<br><span class="muted-s">controlled by</span> ${personLabel(c.name, c.type)}${h.ctls.length > 1 ? ` <span class="muted-s">(${esc(c.s0 || '?')} → ${esc(c.e0 || 'now')})</span>` : ''}`).join('') +
       `<span class="when">${esc(h.op_start || '?')} → ${esc(h.op_end || 'now')}</span></li>`).join('')}</ol></details>` : '';
     show(`
       ${meta.sample ? '<p><span class="sample">SAMPLE</span></p>' : ''}
@@ -578,9 +588,13 @@
       const hist = parse(feat.properties.history, []);
       for (const h of hist) {
         if (h.controller_id !== cid) continue;
+        // control of THIS mine = the overlap of the operator's stint here and the controller's control of that operator
+        const s0 = [h.op_start, h.ctl_start].filter(Boolean).sort().pop() || '';
+        const e0 = [h.op_end, h.ctl_end].filter(Boolean).sort()[0] || '';
+        if (s0 && e0 && s0 > e0) continue;
         const o = ops[h.operator_id || h.operator] ||= { id: h.operator_id, name: h.operator || 'Unnamed operator', mines: {} };
         const mm = o.mines[m.id] ||= { feat, periods: [] };
-        mm.periods.push({ start: h.ctl_start || h.op_start || '', end: h.ctl_end || '', op_start: h.op_start, op_end: h.op_end });
+        mm.periods.push({ start: s0, end: e0, op_start: h.op_start, op_end: h.op_end });
       }
     }
     const periods = Object.values(ops).flatMap((o) => Object.values(o.mines).flatMap((m) => m.periods));

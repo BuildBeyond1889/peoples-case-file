@@ -274,6 +274,11 @@ def msha(areas):
             for o in ops:
                 if not o['controller_id']:
                     continue
+                # MSHA pairs each operator stint with that operator's controller history, which can fall outside
+                # the stint (Panther Mining at Tyree 2001-03 is listed with Alpha, its controller from 2011).
+                # Only count a controller for this mine when its control overlaps the operator's time at the mine.
+                if max(o['op_start'] or '0000', o['ctl_start'] or '0000') > min(o['op_end'] or '9999', o['ctl_end'] or '9999'):
+                    continue
                 fam = families.setdefault(o['controller_id'], {
                     'controller_id': o['controller_id'], 'controller': o['controller'],
                     'controller_type': o['controller_type'], 'operators': {}, 'mines': {}})
