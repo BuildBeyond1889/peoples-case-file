@@ -1,4 +1,4 @@
-# People's Case File
+# The People's Case
 
 See what's around you: facilities, violations, water systems, and who owns them. Built from public records, with a source and date on every fact.
 

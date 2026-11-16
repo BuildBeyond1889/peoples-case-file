@@ -223,3 +223,6 @@ body.on-family #navMap,body.on-family #navHome{background:none;color:var(--muted
 .racts{display:flex;flex-wrap:wrap;gap:8px}.racts button,.racts select{background:none;border:1px solid var(--line2);color:var(--soft);border-radius:8px;padding:6px 10px;font:12.5px var(--sans);cursor:pointer}
 .rform{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:10px 0}.rform label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
 .rform input,.rform select{padding:8px 10px;border-radius:8px;border:1px solid var(--line2);background:var(--card2);color:var(--ink);font:14px var(--sans)}
+
+[hidden]{display:none!important}
+.silence li .when,.wsys .when{display:block;margin-top:2px}

@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+archive/
+site/data/*
+!site/data/sample.geojson

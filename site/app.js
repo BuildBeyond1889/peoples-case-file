@@ -1,4 +1,4 @@
-// People's Case File: Curtain Puller map.
+// The People's Case: Curtain Puller map.
 // Reads site/data/index.json, mines.geojson, facilities.geojson and families.json
 // written by collector/collect.py. Falls back to sample.geojson (labelled SAMPLE).
 (function () {
@@ -186,6 +186,12 @@
       ${letterKey ? `<div class="btns"><button type="button" class="btn primary" data-letter="${esc(letterKey)}">Draft a records request →</button></div>` : ''}</div>`;
   }
 
+  function kindLabel(k, dflt) {
+    const parts = String(k || '').split(/,\s*(?=\d{3,6}:)/).map((x) => x.replace(/^\d{3,6}:\s*/, '').trim()).filter(Boolean);
+    if (!parts.length) return dflt;
+    return parts[0] + (parts.length > 1 ? ' + ' + (parts.length - 1) + ' more' : '');
+  }
+
   function personLabel(name, type) {
     return (type || '').toUpperCase().startsWith('P') ? `${esc(name)} <span class="muted-s">(individual, as named in MSHA records)</span>` : esc(name);
   }
@@ -262,7 +268,7 @@
     const key = flags.length ? regFacilityLetter({ ...p, flags, permits, frs: ids.frs, coords }, null) : null;
     show(`
       ${meta.sample ? '<p><span class="sample">SAMPLE</span></p>' : ''}
-      <p class="eyebrow">${esc(String(p.kind || 'EPA-regulated facility').toUpperCase())}</p>
+      <p class="eyebrow">${esc(kindLabel(p.kind, 'EPA-regulated facility').toUpperCase())}</p>
       <h2 class="card-title">${esc(p.name)}</h2>
       <div class="stats">
         <div class="stat"><span class="k">Quarters out of compliance</span><span class="v ${p.qtrs_noncompliance >= 4 ? 'hot' : ''}">${p.qtrs_noncompliance ?? '—'}<span class="muted-s"> / 12</span></span><span class="s">last 3 years</span></div>
@@ -367,7 +373,7 @@
     const t = parse(p.tri, {});
     const ids = parse(p.ids, {});
     show(`
-      <p class="eyebrow">${esc(String(p.kind || 'TRI facility').toUpperCase())}</p>
+      <p class="eyebrow">${esc(kindLabel(p.kind, 'TRI facility').toUpperCase())}</p>
       <h2 class="card-title">${esc(p.name)}</h2>
       <div class="row"><span class="lbl">Parent company (reported by the facility)</span><span>${esc(t.parent || 'none reported')}</span></div>
       ${t.foreign_parent ? `<div class="row"><span class="lbl">Foreign parent</span><span>${esc(t.foreign_parent)}</span></div>` : ''}
@@ -557,7 +563,7 @@
       const hi = e.some((x) => x.severity === 'high');
       const cls = p.status === 'Active' ? 'act' : '';
       return `<button type="button" class="fp-mine ${cls}" data-fpmine="${esc(mid)}" aria-pressed="${famState.sel === 'm:' + mid}">
-        <span class="nm">${esc(p.name)}</span><span class="ct">${num(p.citations || 0)} citations</span>
+        <span class="nm">${esc(p.name)}</span><span class="ct" title="All citations at this mine, under every operator and controller">${num(p.citations || 0)} citations · all owners</span>
         ${e.length ? `<span class="epa ${hi ? 'hi' : ''}">${hi ? '⚑ ' : ''}EPA site ${hi ? '· high priority' : ''}</span>` : ''}</button>`;
     };
     const graph = visOps.length ? visOps.map((o) => `
@@ -630,8 +636,8 @@
         <div class="btns"><button type="button" class="btn" data-fpmap="__all">Show on the map</button><button type="button" class="btn primary" data-letter="${esc(famLetter)}">Request MSHA records</button>${packBtn('family', f, f.controller + ' family (MSHA controller ' + f.controller_id + ')')}</div>
       </section>
       <section class="fp-kpis" aria-label="Family totals">
-        ${kpi('Mines in family', num(allMines.length), `${num(active)} active now · ${num(opList.length)} companies`, 'MSHA · ' + esc(f.as_of))}
-        ${kpi('Safety citations', num(v.total || 0), `${num(v.last5 || 0)} in the last 5 years`, 'MSHA violations', (v.last5 || 0) > 0 ? '' : '')}
+        ${kpi('Mines in family', num(allMines.length), `${num(active)} active now · ${num(opList.length)} compan${opList.length === 1 ? 'y' : 'ies'}`, 'MSHA · ' + esc(f.as_of))}
+        ${kpi('Safety citations', num(v.total || 0), `while under this controller · ${num(v.last5 || 0)} in the last 5 years`, 'MSHA violations', (v.last5 || 0) > 0 ? '' : '')}
         ${kpi('Serious (S&amp;S)', num(v.sig_sub || 0), 'likely to cause injury', 'MSHA violations')}
         ${kpi('Penalties owed', usd(v.due || 0), paidPct == null ? '—' : `${paidPct}% paid (${usd(v.paid || 0)})`, 'MSHA assessments', paidPct != null && paidPct < 50 ? 'hotk' : '')}
         ${kpi('EPA sites linked', num(epaLinks.length), `${num(highEpa.length)} high-priority flags`, 'EPA ECHO · inferred links', highEpa.length ? 'hotk' : '')}
@@ -656,7 +662,7 @@
           <p>These mines changed operating company at least once.${bk.length ? ` Bankruptcy-court dockets found by name: ${bk.slice(0, 3).map((c) => `<a href="${esc(c.url || '#')}" target="_blank" rel="noopener">${esc(c.case)}</a> (${esc(c.court_id)}, ${esc(c.filed || '')})`).join('; ')}.` : ''}</p>
           <p class="emptynote">${courtsOn ? 'Reclamation-bond records: not collected yet' : 'Bankruptcy records need a free CourtListener token · bond records not collected yet'}</p></article>
         <article class="pat amber"><span class="eyebrow">SILENCE DETECTOR</span><h3>${highEpa.length ? num(highEpa.length) + ' high-priority EPA site' + (highEpa.length === 1 ? '' : 's') : 'No high-priority EPA flags'}</h3>
-          ${highEpa.slice(0, 2).map((e) => `<p><b>${esc(e.name)}</b> · ${esc((e.flags || [])[0]?.label || '')}</p>`).join('') || '<p>No linked EPA site has a high-priority flag.</p>'}
+          ${highEpa.slice(0, 2).map((e) => `<p><b>${esc(e.name)}</b> · ${esc((e.flags || [])[0]?.label || '')} <span class="muted-s">· linked to this family’s mine by an inferred site match, not an MSHA record</span></p>`).join('') || '<p>No linked EPA site has a high-priority flag.</p>'}
           ${highEpa.length ? `<button type="button" class="linkbtn" data-letter="${esc(regFacilityLetter(highEpa[0], parse(highEpa[0].mine.properties.ids, {})))}">Draft a records request →</button>` : ''}</article>
         ${(mo.pacs.length || mo.lobby.length) ? `<article class="pat steel"><span class="eyebrow">MONEY TIMING · NOT PROOF</span>
           <h3>${mo.lobby.length ? usd(mo.lobby.reduce((a, x) => a + (+x.amount || 0), 0)) + ' on federal lobbying' : ''}${mo.lobby.length && mo.pacs.length ? ' · ' : ''}${mo.pacs.length ? num(mo.pacs.length) + ' PAC' + (mo.pacs.length === 1 ? '' : 's') : ''}</h3>
@@ -957,7 +963,7 @@
 .row{display:flex;gap:12px;justify-content:space-between;border-bottom:1px solid #eee;padding:4px 0}.lbl{color:#555!important}table{border-collapse:collapse;width:100%;font:12px monospace}td,th{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top;word-break:break-all}
 @media print{a{color:#111}}</style></head><body>
 <h1>Evidence pack: ${esc(P.title)}</h1>
-<div class="meta">Pack ID ${packId} · made ${made} · data pulled ${esc(meta.pulled || '?')} · from People's Case File (${esc(location.origin + location.pathname)})<br>
+<div class="meta">Pack ID ${packId} · made ${made} · data pulled ${esc(meta.pulled || '?')} · from The People's Case (${esc(location.origin + location.pathname)})<br>
 Everything below is what the site showed, built only from public records. “Linked to” never means “did this”. Flags are questions to ask, not findings of wrongdoing. Not legal advice.</div>
 <div class="shown">${shown.innerHTML}</div>
 <h2>Archived originals behind this record</h2>
@@ -966,7 +972,7 @@ Everything below is what the site showed, built only from public records. “Lin
 <h2>Live sources</h2><table><tr><th>What</th><th>Link</th><th>Date</th></tr>${live.map((x) => `<tr><td>${esc(x.what)}</td><td><a href="${esc(x.url)}">${esc(x.url)}</a></td><td>${esc(x.when)}</td></tr>`).join('')}</table>
 <h2>How to verify</h2><ol><li>Download the archive release above and extract it (join .part files first if it was split).</li><li>Run <code>sha256sum</code> on each file listed and compare with the fingerprints here.</li><li>Check SHA256SUMS.txt in this pack against the pack's own files.</li><li>Re-open each live source; agency records can change after the pull date.</li></ol>
 </body></html>`);
-    const readme = enc.encode(`People's Case File: evidence pack ${packId}\n\n${P.title}\nMade ${made}. Data pulled ${meta.pulled || '?'}.\n\nFiles:\n  summary.html   what the site showed, printable, with every source\n  records.json   the exact records behind it (machine-readable)\n  sources.csv    archived originals (path, original URL, pull time, SHA-256) and live sources\n  SHA256SUMS.txt fingerprints of the files in this pack\n\nArchived originals: ${rel ? rel.page : 'monthly GitHub release'}\n${rel ? rel.note : ''}\n\nPublic records only. "Linked to" never means "did this". Not legal advice.\n`);
+    const readme = enc.encode(`The People's Case: evidence pack ${packId}\n\n${P.title}\nMade ${made}. Data pulled ${meta.pulled || '?'}.\n\nFiles:\n  summary.html   what the site showed, printable, with every source\n  records.json   the exact records behind it (machine-readable)\n  sources.csv    archived originals (path, original URL, pull time, SHA-256) and live sources\n  SHA256SUMS.txt fingerprints of the files in this pack\n\nArchived originals: ${rel ? rel.page : 'monthly GitHub release'}\n${rel ? rel.note : ''}\n\nPublic records only. "Linked to" never means "did this". Not legal advice.\n`);
     const files = [{ name: 'README.txt', data: readme }, { name: 'summary.html', data: summary }, { name: 'records.json', data: recordsJson }, { name: 'sources.csv', data: sourcesCsv }];
     const sums = [];
     for (const f of files) sums.push(`${await sha256hex(f.data)}  ${f.name}`);
