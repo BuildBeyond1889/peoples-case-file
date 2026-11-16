@@ -1,0 +1,1317 @@
+{
+ "pwsid": "KY0480498",
+ "viol": {
+  "n": 19,
+  "raw_if_small": null,
+  "years": [
+   [
+    "1993",
+    1
+   ],
+   [
+    "1996",
+    1
+   ],
+   [
+    "2001",
+    2
+   ],
+   [
+    "2002",
+    3
+   ],
+   [
+    "2011",
+    1
+   ],
+   [
+    "2014",
+    1
+   ],
+   [
+    "2015",
+    2
+   ],
+   [
+    "2016",
+    3
+   ],
+   [
+    "2019",
+    1
+   ],
+   [
+    "2021",
+    1
+   ],
+   [
+    "2023",
+    1
+   ],
+   [
+    "2025",
+    2
+   ]
+  ],
+  "keys": [
+   "compl_per_begin_date",
+   "compl_per_end_date",
+   "compliance_status_code",
+   "contaminant_code",
+   "corrective_action_id",
+   "epa_region",
+   "facility_id",
+   "is_health_based_ind",
+   "is_major_viol_ind",
+   "latest_enforcement_id",
+   "npm_candidate",
+   "originator_code",
+   "pop_cat_5_code",
+   "population_served_count",
+   "primacy_agency_code",
+   "primary_source_code",
+   "public_notification_tier",
+   "pws_activity_code",
+   "pws_deactivation_date",
+   "pws_type_code",
+   "pwsid",
+   "rtc_date",
+   "rtc_enforcement_id",
+   "rule_code",
+   "rule_family_code",
+   "rule_group_code",
+   "sample_result_id",
+   "severity_ind_cnt",
+   "state_mcl",
+   "unit_of_measure",
+   "viol_measure",
+   "violation_category_code",
+   "violation_code",
+   "violation_id"
+  ]
+ },
+ "viol_rows": {
+  "n": 19,
+  "raw_if_small": null,
+  "years": [
+   [
+    "1993",
+    1
+   ],
+   [
+    "1996",
+    1
+   ],
+   [
+    "2001",
+    2
+   ],
+   [
+    "2002",
+    3
+   ],
+   [
+    "2011",
+    1
+   ],
+   [
+    "2014",
+    1
+   ],
+   [
+    "2015",
+    2
+   ],
+   [
+    "2016",
+    3
+   ],
+   [
+    "2019",
+    1
+   ],
+   [
+    "2021",
+    1
+   ],
+   [
+    "2023",
+    1
+   ],
+   [
+    "2025",
+    2
+   ]
+  ],
+  "keys": [
+   "compl_per_begin_date",
+   "compl_per_end_date",
+   "compliance_status_code",
+   "contaminant_code",
+   "corrective_action_id",
+   "epa_region",
+   "facility_id",
+   "is_health_based_ind",
+   "is_major_viol_ind",
+   "latest_enforcement_id",
+   "npm_candidate",
+   "originator_code",
+   "pop_cat_5_code",
+   "population_served_count",
+   "primacy_agency_code",
+   "primary_source_code",
+   "public_notification_tier",
+   "pws_activity_code",
+   "pws_deactivation_date",
+   "pws_type_code",
+   "pwsid",
+   "rtc_date",
+   "rtc_enforcement_id",
+   "rule_code",
+   "rule_family_code",
+   "rule_group_code",
+   "sample_result_id",
+   "severity_ind_cnt",
+   "state_mcl",
+   "unit_of_measure",
+   "viol_measure",
+   "violation_category_code",
+   "violation_code",
+   "violation_id"
+  ]
+ },
+ "viol_count": {
+  "n": 1,
+  "raw_if_small": null,
+  "years": [
+   [
+    "",
+    1
+   ]
+  ],
+  "keys": [
+   "TOTALQUERYRESULTS"
+  ]
+ },
+ "sdw_viol_enf": {
+  "n": 25,
+  "raw_if_small": null,
+  "years": [
+   [
+    "",
+    25
+   ]
+  ],
+  "keys": [
+   "ccode",
+   "cname",
+   "compperbegindate",
+   "compperenddate",
+   "countyserved",
+   "ctype",
+   "definition",
+   "enfactionname",
+   "enfactiontype",
+   "enfdate",
+   "health_effects",
+   "pwsid",
+   "pwsname",
+   "sources",
+   "state",
+   "vcode",
+   "vioid",
+   "violmeasure",
+   "vname",
+   "vtype"
+  ]
+ },
+ "echo_sdwa": {
+  "last_modified": "Wed, 14 Oct 2026 01:15:30 GMT",
+  "files": [
+   "SDWA_EVENTS_MILESTONES.csv",
+   "SDWA_FACILITIES.csv",
+   "SDWA_GEOGRAPHIC_AREAS.csv",
+   "SDWA_LCR_SAMPLES.csv",
+   "SDWA_PUB_WATER_SYSTEMS.csv",
+   "SDWA_PN_VIOLATION_ASSOC.csv",
+   "SDWA_REF_ANSI_AREAS.csv",
+   "SDWA_REF_CODE_VALUES.csv",
+   "SDWA_SERVICE_AREAS.csv",
+   "SDWA_SITE_VISITS.csv",
+   "SDWA_VIOLATIONS_ENFORCEMENT.csv"
+  ],
+  "columns": [
+   "SUBMISSIONYEARQUARTER",
+   "PWSID",
+   "VIOLATION_ID",
+   "FACILITY_ID",
+   "COMPL_PER_BEGIN_DATE",
+   "COMPL_PER_END_DATE",
+   "NON_COMPL_PER_BEGIN_DATE",
+   "NON_COMPL_PER_END_DATE",
+   "PWS_DEACTIVATION_DATE",
+   "VIOLATION_CODE",
+   "VIOLATION_CATEGORY_CODE",
+   "IS_HEALTH_BASED_IND",
+   "CONTAMINANT_CODE",
+   "VIOL_MEASURE",
+   "UNIT_OF_MEASURE",
+   "FEDERAL_MCL",
+   "STATE_MCL",
+   "IS_MAJOR_VIOL_IND",
+   "SEVERITY_IND_CNT",
+   "CALCULATED_RTC_DATE",
+   "VIOLATION_STATUS",
+   "PUBLIC_NOTIFICATION_TIER",
+   "CALCULATED_PUB_NOTIF_TIER",
+   "VIOL_ORIGINATOR_CODE",
+   "SAMPLE_RESULT_ID",
+   "CORRECTIVE_ACTION_ID",
+   "RULE_CODE",
+   "RULE_GROUP_CODE",
+   "RULE_FAMILY_CODE",
+   "VIOL_FIRST_REPORTED_DATE",
+   "VIOL_LAST_REPORTED_DATE",
+   "ENFORCEMENT_ID",
+   "ENFORCEMENT_DATE",
+   "ENFORCEMENT_ACTION_TYPE_CODE",
+   "ENF_ACTION_CATEGORY",
+   "ENF_ORIGINATOR_CODE",
+   "ENF_FIRST_REPORTED_DATE",
+   "ENF_LAST_REPORTED_DATE"
+  ],
+  "file": "SDWA_VIOLATIONS_ENFORCEMENT.csv",
+  "rows": 518,
+  "distinct_violation_ids": 101,
+  "by_year": [
+   [
+    "",
+    143
+   ],
+   [
+    "1984",
+    9
+   ],
+   [
+    "1993",
+    227
+   ],
+   [
+    "1995",
+    39
+   ],
+   [
+    "1996",
+    7
+   ],
+   [
+    "1999",
+    3
+   ],
+   [
+    "2001",
+    8
+   ],
+   [
+    "2002",
+    22
+   ],
+   [
+    "2004",
+    8
+   ],
+   [
+    "2006",
+    8
+   ],
+   [
+    "2011",
+    4
+   ],
+   [
+    "2014",
+    2
+   ],
+   [
+    "2015",
+    12
+   ],
+   [
+    "2016",
+    12
+   ],
+   [
+    "2019",
+    2
+   ],
+   [
+    "2021",
+    2
+   ],
+   [
+    "2023",
+    2
+   ],
+   [
+    "2025",
+    8
+   ]
+  ],
+  "health_based": 0,
+  "sample": [
+   {
+    "SUBMISSIONYEARQUARTER": "2026Q3",
+    "PWSID": "KY0480498",
+    "VIOLATION_ID": "7852098",
+    "FACILITY_ID": "",
+    "COMPL_PER_BEGIN_DATE": "01/01/1993",
+    "COMPL_PER_END_DATE": "12/31/1993",
+    "NON_COMPL_PER_BEGIN_DATE": "01/01/1993",
+    "NON_COMPL_PER_END_DATE": "12/31/1993",
+    "PWS_DEACTIVATION_DATE": "",
+    "VIOLATION_CODE": "03",
+    "VIOLATION_CATEGORY_CODE": "MR",
+    "IS_HEALTH_BASED_IND": "N",
+    "CONTAMINANT_CODE": "2984",
+    "VIOL_MEASURE": "",
+    "UNIT_OF_MEASURE": "",
+    "FEDERAL_MCL": "0.005 mg/L",
+    "STATE_MCL": "",
+    "IS_MAJOR_VIOL_IND": "Y",
+    "SEVERITY_IND_CNT": "",
+    "CALCULATED_RTC_DATE": "12/31/1993",
+    "VIOLATION_STATUS": "Resolved",
+    "PUBLIC_NOTIFICATION_TIER": "3",
+    "CALCULATED_PUB_NOTIF_TIER": "3",
+    "VIOL_ORIGINATOR_CODE": "S",
+    "SAMPLE_RESULT_ID": "",
+    "CORRECTIVE_ACTION_ID": "",
+    "RULE_CODE": "310",
+    "RULE_GROUP_CODE": "300",
+    "RULE_FAMILY_CODE": "310",
+    "VIOL_FIRST_REPORTED_DATE": "04/10/2001",
+    "VIOL_LAST_REPORTED_DATE": "11/16/2010",
+    "ENFORCEMENT_ID": "35098",
+    "ENFORCEMENT_DATE": "11/24/1998",
+    "ENFORCEMENT_ACTION_TYPE_CODE": "SIE",
+    "ENF_ACTION_CATEGORY": "Informal",
+    "ENF_ORIGINATOR_CODE": "S",
+    "ENF_FIRST_REPORTED_DATE": "12/22/2005",
+    "ENF_LAST_REPORTED_DATE": "11/16/2010"
+   },
+   {
+    "SUBMISSIONYEARQUARTER": "2026Q3",
+    "PWSID": "KY0480498",
+    "VIOLATION_ID": "7852098",
+    "FACILITY_ID": "",
+    "COMPL_PER_BEGIN_DATE": "01/01/1993",
+    "COMPL_PER_END_DATE": "12/31/1993",
+    "NON_COMPL_PER_BEGIN_DATE": "01/01/1993",
+    "NON_COMPL_PER_END_DATE": "12/31/1993",
+    "PWS_DEACTIVATION_DATE": "",
+    "VIOLATION_CODE": "03",
+    "VIOLATION_CATEGORY_CODE": "MR",
+    "IS_HEALTH_BASED_IND": "N",
+    "CONTAMINANT_CODE": "2984",
+    "VIOL_MEASURE": "",
+    "UNIT_OF_MEASURE": "",
+    "FEDERAL_MCL": "0.005 mg/L",
+    "STATE_MCL": "",
+    "IS_MAJOR_VIOL_IND": "Y",
+    "SEVERITY_IND_CNT": "",
+    "CALCULATED_RTC_DATE": "12/31/1993",
+    "VIOLATION_STATUS": "Resolved",
+    "PUBLIC_NOTIFICATION_TIER": "3",
+    "CALCULATED_PUB_NOTIF_TIER": "3",
+    "VIOL_ORIGINATOR_CODE": "S",
+    "SAMPLE_RESULT_ID": "",
+    "CORRECTIVE_ACTION_ID": "",
+    "RULE_CODE": "310",
+    "RULE_GROUP_CODE": "300",
+    "RULE_FAMILY_CODE": "310",
+    "VIOL_FIRST_REPORTED_DATE": "04/10/2001",
+    "VIOL_LAST_REPORTED_DATE": "11/16/2010",
+    "ENFORCEMENT_ID": "35198",
+    "ENFORCEMENT_DATE": "11/24/1998",
+    "ENFORCEMENT_ACTION_TYPE_CODE": "SIA",
+    "ENF_ACTION_CATEGORY": "Informal",
+    "ENF_ORIGINATOR_CODE": "S",
+    "ENF_FIRST_REPORTED_DATE": "12/22/2005",
+    "ENF_LAST_REPORTED_DATE": "11/16/2010"
+   },
+   {
+    "SUBMISSIONYEARQUARTER": "2026Q3",
+    "PWSID": "KY0480498",
+    "VIOLATION_ID": "7852198",
+    "FACILITY_ID": "",
+    "COMPL_PER_BEGIN_DATE": "01/01/1995",
+    "COMPL_PER_END_DATE": "12/31/1995",
+    "NON_COMPL_PER_BEGIN_DATE": "01/01/1995",
+    "NON_COMPL_PER_END_DATE": "12/31/1995",
+    "PWS_DEACTIVATION_DATE": "",
+    "VIOLATION_CODE": "03",
+    "VIOLATION_CATEGORY_CODE": "MR",
+    "IS_HEALTH_BASED_IND": "N",
+    "CONTAMINANT_CODE": "2984",
+    "VIOL_MEASURE": "",
+    "UNIT_OF_MEASURE": "",
+    "FEDERAL_MCL": "0.005 mg/L",
+    "STATE_MCL": "",
+    "IS_MAJOR_VIOL_IND": "Y",
+    "SEVERITY_IND_CNT": "",
+    "CALCULATED_RTC_DATE": "12/31/1995",
+    "VIOLATION_STATUS": "Resolved",
+    "PUBLIC_NOTIFICATION_TIER": "3",
+    "CALCULATED_PUB_NOTIF_TIER": "3",
+    "VIOL_ORIGINATOR_CODE": "S",
+    "SAMPLE_RESULT_ID": "",
+    "CORRECTIVE_ACTION_ID": "",
+    "RULE_CODE": "310",
+    "RULE_GROUP_CODE": "300",
+    "RULE_FAMILY_CODE": "310",
+    "VIOL_FIRST_REPORTED_DATE": "04/10/2001",
+    "VIOL_LAST_REPORTED_DATE": "11/16/2010",
+    "ENFORCEMENT_ID": "35298",
+    "ENFORCEMENT_DATE": "11/24/1998",
+    "ENFORCEMENT_ACTION_TYPE_CODE": "SIA",
+    "ENF_ACTION_CATEGORY": "Informal",
+    "ENF_ORIGINATOR_CODE": "S",
+    "ENF_FIRST_REPORTED_DATE": "12/22/2005",
+    "ENF_LAST_REPORTED_DATE": "11/16/2010"
+   }
+  ]
+ },
+ "per_system": {
+  "KY0480498": {
+   "rows": 518,
+   "distinct": 101,
+   "distinct_pair": 101
+  },
+  "KY0480461": {
+   "rows": 84,
+   "distinct": 25,
+   "distinct_pair": 25
+  },
+  "MI0001019": {
+   "rows": 58,
+   "distinct": 23,
+   "distinct_pair": 23
+  },
+  "MI0006505": {
+   "rows": 42,
+   "distinct": 14,
+   "distinct_pair": 14
+  }
+ },
+ "ids": {
+  "MI0006505": [
+   [
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "#302456",
+    "220",
+    "N",
+    "30",
+    "10/01/2007"
+   ],
+   [
+    "#302950",
+    "220",
+    "N",
+    "30",
+    "10/01/2007"
+   ],
+   [
+    "#350600",
+    "220",
+    "N",
+    "35",
+    "01/02/2009"
+   ],
+   [
+    "1000101",
+    "110",
+    "N",
+    "24",
+    "10/01/2000"
+   ],
+   [
+    "1000900",
+    "420",
+    "N",
+    "71",
+    "10/19/1999"
+   ],
+   [
+    "3000198",
+    "110",
+    "N",
+    "24",
+    "06/01/1998"
+   ],
+   [
+    "3000204",
+    "110",
+    "N",
+    "24",
+    "05/01/2003"
+   ],
+   [
+    "3000207",
+    "111",
+    "N",
+    "3A",
+    "11/01/2020"
+   ],
+   [
+    "3000208",
+    "420",
+    "N",
+    "71",
+    "07/01/2020"
+   ],
+   [
+    "3000210",
+    "350",
+    "Y",
+    "59",
+    "07/01/2020"
+   ],
+   [
+    "3000211",
+    "350",
+    "Y",
+    "59",
+    "01/01/2021"
+   ],
+   [
+    "3000212",
+    "350",
+    "Y",
+    "59",
+    "07/01/2021"
+   ],
+   [
+    "3000214",
+    "420",
+    "N",
+    "72",
+    "07/01/2023"
+   ]
+  ],
+  "KY0480498": [
+   [
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   [
+    "1573602",
+    "420",
+    "N",
+    "72",
+    "07/01/2002"
+   ],
+   [
+    "4671485",
+    "340",
+    "N",
+    "03",
+    "10/01/1984"
+   ],
+   [
+    "4921886",
+    "333",
+    "N",
+    "03",
+    "09/01/1984"
+   ],
+   [
+    "4922086",
+    "333",
+    "N",
+    "03",
+    "09/01/1984"
+   ],
+   [
+    "4922286",
+    "333",
+    "N",
+    "03",
+    "09/01/1984"
+   ],
+   [
+    "4922386",
+    "331",
+    "N",
+    "03",
+    "09/01/1984"
+   ],
+   [
+    "4922486",
+    "332",
+    "N",
+    "03",
+    "09/01/1984"
+   ],
+   [
+    "4922586",
+    "333",
+    "N",
+    "03",
+    "09/01/1984"
+   ],
+   [
+    "4922686",
+    "333",
+    "N",
+    "03",
+    "09/01/1984"
+   ],
+   [
+    "4922786",
+    "333",
+    "N",
+    "03",
+    "09/01/1984"
+   ],
+   [
+    "6086493",
+    "110",
+    "N",
+    "24",
+    "01/01/1993"
+   ],
+   [
+    "6707795",
+    "110",
+    "N",
+    "24",
+    "02/01/1995"
+   ],
+   [
+    "7844198",
+    "333",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7844598",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7844698",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7844798",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7844898",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7844998",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845098",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845198",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845298",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845398",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845498",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845598",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845698",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845798",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845898",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7845998",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7846098",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7846198",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7846398",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7846498",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7846598",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7846698",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7846798",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7846898",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7847298",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7847398",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7847798",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7847898",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7847998",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7848198",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7848298",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7848398",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7849298",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7849798",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7849898",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7849998",
+    "320",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7850098",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7850498",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7850598",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7850698",
+    "310",
+    "N",
+    "03",
+    "01/01/1995"
+   ],
+   [
+    "7850798",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7850898",
+    "310",
+    "N",
+    "03",
+    "01/01/1995"
+   ],
+   [
+    "7850998",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7851098",
+    "310",
+    "N",
+    "03",
+    "01/01/1995"
+   ],
+   [
+    "7851298",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7851398",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7851498",
+    "310",
+    "N",
+    "03",
+    "01/01/1995"
+   ],
+   [
+    "7851598",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7851698",
+    "310",
+    "N",
+    "03",
+    "01/01/1995"
+   ],
+   [
+    "7851798",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7851898",
+    "310",
+    "N",
+    "03",
+    "01/01/1995"
+   ],
+   [
+    "7851998",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7852098",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7852198",
+    "310",
+    "N",
+    "03",
+    "01/01/1995"
+   ],
+   [
+    "7852298",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7852498",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7852698",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7852798",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7852898",
+    "310",
+    "N",
+    "03",
+    "01/01/1995"
+   ],
+   [
+    "7852998",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7853098",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "7853298",
+    "310",
+    "N",
+    "03",
+    "01/01/1993"
+   ],
+   [
+    "8839799",
+    "350",
+    "N",
+    "51",
+    "07/01/1993"
+   ],
+   [
+    "8839999",
+    "350",
+    "N",
+    "52",
+    "01/01/1996"
+   ],
+   [
+    "9431199",
+    "121",
+    "N",
+    "36",
+    "11/01/1999"
+   ],
+   [
+    "950802",
+    "420",
+    "N",
+    "71",
+    "07/01/2002"
+   ],
+   [
+    "9609901",
+    "420",
+    "N",
+    "71",
+    "07/01/2001"
+   ],
+   [
+    "9610001",
+    "420",
+    "N",
+    "72",
+    "07/01/2001"
+   ],
+   [
+    "9630101",
+    "340",
+    "N",
+    "03",
+    "07/01/1995"
+   ],
+   [
+    "9637201",
+    "121",
+    "N",
+    "36",
+    "08/01/2001"
+   ],
+   [
+    "9639505",
+    "333",
+    "N",
+    "03",
+    "01/01/2002"
+   ],
+   [
+    "9639605",
+    "210",
+    "N",
+    "27",
+    "01/01/2004"
+   ],
+   [
+    "9639705",
+    "210",
+    "N",
+    "27",
+    "01/01/2004"
+   ],
+   [
+    "9639706",
+    "210",
+    "N",
+    "27",
+    "01/01/2006"
+   ],
+   [
+    "9639707",
+    "210",
+    "N",
+    "27",
+    "01/01/2006"
+   ],
+   [
+    "9639710",
+    "333",
+    "N",
+    "03",
+    "01/01/2011"
+   ],
+   [
+    "9639711",
+    "410",
+    "N",
+    "75",
+    "10/08/2014"
+   ],
+   [
+    "9639712",
+    "110",
+    "N",
+    "24",
+    "02/01/2015"
+   ],
+   [
+    "9639713",
+    "220",
+    "N",
+    "27",
+    "10/01/2015"
+   ],
+   [
+    "9639714",
+    "220",
+    "N",
+    "27",
+    "10/01/2015"
+   ],
+   [
+    "9639716",
+    "220",
+    "N",
+    "27",
+    "01/01/2016"
+   ],
+   [
+    "9639717",
+    "220",
+    "N",
+    "27",
+    "01/01/2016"
+   ],
+   [
+    "9639718",
+    "111",
+    "N",
+    "3A",
+    "10/01/2016"
+   ],
+   [
+    "9639719",
+    "420",
+    "N",
+    "71",
+    "07/01/2019"
+   ],
+   [
+    "9639721",
+    "420",
+    "N",
+    "72",
+    "07/01/2021"
+   ],
+   [
+    "9639722",
+    "420",
+    "N",
+    "71",
+    "07/01/2023"
+   ],
+   [
+    "9639723",
+    "111",
+    "N",
+    "3A",
+    "11/01/2025"
+   ],
+   [
+    "9639724",
+    "111",
+    "N",
+    "3A",
+    "12/01/2025"
+   ]
+  ]
+ }
+}
