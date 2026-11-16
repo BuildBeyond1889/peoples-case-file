@@ -197,7 +197,9 @@
     const items = [];
     const mines = Object.values(mineById);
     const active = mines.filter((f) => f.properties.status === 'Active');
-    for (const f of [...pickN(active, 3, rnd), ...pickN(mines.filter((f) => f.properties.status !== 'Active' && (f.properties.citations || 0) > 0), 5, rnd)]) {
+    // MSHA's website search can't find abandoned mines, so sample the ones a person can actually check there.
+    const findable = mines.filter((f) => !/abandon/i.test(f.properties.status || '') && (f.properties.citations || 0) > 0);
+    for (const f of [...pickN(active, 3, rnd), ...pickN(findable.filter((f) => f.properties.status !== 'Active'), 5, rnd)]) {
       const p = f.properties, ids = parse(p.ids, {}), v = parse(p.viol, {}) || {};
       items.push({ key: 'mine:' + ids.msha_mine, kind: 'mine', name: p.name, id: ids.msha_mine, idLabel: 'MSHA mine ID',
         src: MSHA_LOOKUP, srcName: 'MSHA Mine Data Retrieval System', how: 'On MSHA’s page set the search type to “Mine ID”, paste the ID, press Search, then click the mine in the results. The Mine ID at the top must match before you compare. Citations are under “Violations”.',
@@ -338,8 +340,13 @@
     return `<p class="muted-s">Listed controller in MSHA records: ${esc(name)} (individual). Shown only as named in those records, in that role.</p>`;
   }
 
+  // MSHA types many older individual controllers as "COMPANY" (e.g. "Karst Edward W"). Treat a controller as a person
+  // when MSHA says so OR the name has no company word, so individuals are never headlined as if they were companies.
+  const CO_WORDS = /\b(inc|llc|l\.l\.c|co|corp|corporation|company|companies|ltd|limited|lp|llp|plc|holdings?|group|energy|coal|mining|minerals?|resources?|trust|partners|partnership|fuels?|industries|enterprises?|associates|development|properties|land|bank|capital|investments?|ventures?|international|america|usa|services|contracting|construction|trucking|natural|power|steel|materials|global|commodities|operations)\b/i;
+  const isPersonCtl = (name, type) => (type || '').toUpperCase().startsWith('P') || !CO_WORDS.test(name || '');
+
   function personLabel(name, type) {
-    return (type || '').toUpperCase().startsWith('P') ? `${esc(name)} <span class="muted-s">(individual, as named in MSHA records)</span>` : esc(name);
+    return isPersonCtl(name, type) ? `${esc(name)} <span class="muted-s">(individual, as named in MSHA records)</span>` : esc(name);
   }
 
   function showMine(p) {
@@ -393,7 +400,7 @@
     const mines = (f.mines || []).map((m) => ({ ...m, feat: mineById[m.id] }))
       .sort((a, b) => (b.feat?.properties.citations || 0) - (a.feat?.properties.citations || 0));
     show(`
-      ${(f.controller_type || '').toUpperCase().startsWith('P')
+      ${isPersonCtl(f.controller, f.controller_type)
         ? `<p class="eyebrow">MINE FAMILY · MSHA CONTROLLER ${esc(f.controller_id)}</p><h2 class="card-title">${esc(leadCompany((f.operators || []).map((o) => o.name)))}</h2>${listedControllerNote(f.controller)}`
         : `<p class="eyebrow">CONTROLLER · ${esc((f.controller_type || 'unknown').toUpperCase())} · MSHA ${esc(f.controller_id)}</p><h2 class="card-title">${personLabel(f.controller, f.controller_type)}</h2>`}
       <p class="muted-s">At Harlan County mines: ${num(mines.length)} mine${mines.length === 1 ? '' : 's'}, run through ${num((f.operators || []).length)} operating compan${(f.operators || []).length === 1 ? 'y' : 'ies'}.</p>
@@ -693,7 +700,7 @@
     const worst = allMines.filter((x) => (parse(x.properties.fair, {}).per_inspection_pct ?? -1) >= 75).length;
     const rated = allMines.filter((x) => parse(x.properties.fair, {}).per_inspection != null).length;
     const paidPct = v.due > 0 ? Math.round((v.paid / v.due) * 100) : null;
-    const isPerson = (f.controller_type || '').toUpperCase().startsWith('P');
+    const isPerson = isPersonCtl(f.controller, f.controller_type);
     const opList = Object.values(M.ops);
     const changes = allMines.filter((x) => parse(x.properties.history, []).length > 1).length;
     const mo = moneyFor([f.controller, ...opList.map((o) => o.name)]);
@@ -923,7 +930,7 @@
 
   // ---- Research links (search by name: results must be checked, never assumed)
   function researchHtml(name, type) {
-    if (!name || (type || '').toUpperCase().startsWith('P')) return '';
+    if (!name || isPersonCtl(name, type)) return '';
     const q = encodeURIComponent(name);
     return `<details><summary>Look this company up</summary><ul class="mines-list">
       <li><a class="rlink" href="https://www.sec.gov/cgi-bin/browse-edgar?company=${q}&owner=include&count=40" target="_blank" rel="noopener">SEC EDGAR filings (public companies, subsidiaries)</a></li>
@@ -1281,9 +1288,9 @@ Everything below is what the site showed, built only from public records. “Lin
     if (mines.length || fams.length) {
       show(`<p class="eyebrow">RESULTS FOR “${esc($('q').value.trim())}”</p>
         ${fams.length ? `<details open><summary>Controllers (${fams.length})</summary><ul class="mines-list">${fams.map((f) =>
-          `<li><button type="button" data-fam="${esc(f.controller_id)}"><span>${esc(f.controller)}</span><span class="count">${num((f.mines || []).length)} mines</span></button></li>`).join('')}</ul></details>` : ''}
+          `<li><button type="button" data-fam="${esc(f.controller_id)}"><span>${isPersonCtl(f.controller, f.controller_type) ? esc(leadCompany((f.operators || []).map((o) => o.name))) + ' <span class="muted-s">· listed controller: ' + esc(f.controller) + ' (individual)</span>' : esc(f.controller)}</span><span class="count">${num((f.mines || []).length)} mines</span></button></li>`).join('')}</ul></details>` : ''}
         ${mines.length ? `<details open><summary>Mines (${mines.length})</summary><ul class="mines-list">${mines.map((f) =>
-          `<li><button type="button" data-mine="${esc(f.properties.ids.msha_mine)}"><span>${esc(f.properties.name)}</span><span class="count">${esc(f.properties.status || '')}</span></button></li>`).join('')}</ul></details>` : ''}`);
+          `<li><button type="button" data-mine="${esc(f.properties.ids.msha_mine)}"><span>${esc(f.properties.name)}</span><span class="count">${esc(mineStatus(f.properties.status))}</span></button></li>`).join('')}</ul></details>` : ''}`);
       return;
     }
     try {
