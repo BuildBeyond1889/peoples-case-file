@@ -1,54 +1,47 @@
 #!/usr/bin/env python3
-"""Probe 16: spot-check kit (mines + EPA facilities + TRI + water from the live site). For every mine on the live site: our published numbers (from the live
-site data) plus every row in MSHA's downloadable Violations file, so PDFs from MSHA's live
-Violations report can be compared three ways: live report vs bulk file vs our site.
-Writes probe-out/spotcheck-mines.json (pushed to the probe-results branch by the workflow)."""
-import csv, io, json, os, re, time, urllib.request, urllib.parse, zipfile
+"""Probe 17: drinking-water undercount. EPA's SDWIS Federal Report shows 155 violations for KY0480498
+(Black Mtn Utility/Louellen); our site (Envirofacts VIOLATION/PWSID) shows 19. Compare sources:
+  1. Envirofacts VIOLATION by PWSID (what we use), with and without paging
+  2. ECHO SDWA bulk download (SDWA_VIOLATIONS_ENFORCEMENT.csv), the national file
+Writes probe-out/water-KY0480498.json."""
+import csv, io, json, os, urllib.request, zipfile
+from collections import Counter
 UA = 'PeoplesCaseFile/0.2 (public-records research; https://github.com/BuildBeyond1889/peoples-case-file)'
-SITE = 'https://buildbeyond1889.github.io/peoples-case-file/data/'
-BASE = 'https://arlweb.msha.gov/OpenGovernmentData/'
-def get(url):
-    with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': UA, 'Cache-Control': 'no-cache'}), timeout=900) as r:
+PID = 'KY0480498'
+def get(url, timeout=900):
+    with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': UA}), timeout=timeout) as r:
         return r.headers.get('Last-Modified'), r.read()
-os.makedirs('probe-out', exist_ok=True)
-_, b = get(SITE + 'index.json?t=%d' % time.time()); idx = json.loads(b)
-_, b = get(SITE + idx['layers']['mines'] + '?t=%d' % time.time()); mines = json.loads(b)['features']
-site = {}
-for f in mines:
-    p = f['properties']; mid = str((p.get('ids') or {}).get('msha_mine') or '')
-    if mid:
-        site[mid.lstrip('0')] = {'id': mid, 'name': p.get('name'), 'status': p.get('status'), 'operator': p.get('operator'),
-                                 'controller': p.get('parent'), 'viol': p.get('viol'), 'history': p.get('history')}
-_, idxh = get(BASE + 'OGIMSHA.asp')
-links = sorted(set(urllib.parse.urljoin(BASE, l) for l in re.findall(r'href=["\']([^"\']+?\.zip)["\']', idxh.decode('latin-1'), re.I)))
-url = next((l for l in links if l.lower().endswith('/violations.zip')), BASE + 'DataSets/Violations.zip')
-lm, body = get(url)
-z = zipfile.ZipFile(io.BytesIO(body)); name = [n for n in z.namelist() if n.lower().endswith(('.txt', '.csv'))][0]
-keep = ['VIOLATION_NO', 'VIOLATION_ISSUE_DT', 'VIOLATOR_TYPE_CD', 'VIOLATOR_NAME', 'CONTRACTOR_ID', 'VACATE_DT', 'SIG_SUB',
-        'PROPOSED_PENALTY', 'AMOUNT_DUE', 'AMOUNT_PAID', 'CONTROLLER_ID', 'OPERATOR_ID']
-bulk = {}
-with z.open(name) as raw:
-    rd = csv.reader(io.TextIOWrapper(raw, encoding='latin-1', newline=''), delimiter='|')
-    header = [h.strip().upper() for h in next(rd)]
-    for rec in rd:
-        r = dict(zip(header, (x.strip() for x in rec)))
-        k = r.get('MINE_ID', '').strip('"').lstrip('0')
-        if k in site:
-            bulk.setdefault(k, []).append([r.get(c, '') for c in keep])
-facs = {}
-for lay in ('facilities', 'tri'):
-    if lay in idx['layers']:
-        _, b = get(SITE + idx['layers'][lay] + '?t=%d' % time.time())
-        for f in json.loads(b)['features']:
-            p = f['properties']; ids = p.get('ids') or {}
-            k = str(ids.get('frs') or ids.get('tri') or '')
-            if k: facs.setdefault(lay, {})[k] = {x: p.get(x) for x in ('name', 'kind', 'qtrs_noncompliance', 'qtrs_nc_raw', 'penalties', 'last_inspection', 'flags', 'severity', 'flag_level', 'formal_actions_5yr', 'permits', 'effluent_qtrs', 'releases', 'tri', 'source_url', 'mine_link', 'ids')}
-water = {}
+out = {'pwsid': PID}
+EF = 'https://data.epa.gov/efservice/'
+for label, path in (('viol', f'VIOLATION/PWSID/{PID}/JSON'), ('viol_rows', f'VIOLATION/PWSID/{PID}/rows/0:2000/JSON'),
+                    ('viol_count', f'VIOLATION/PWSID/{PID}/COUNT/JSON'), ('sdw_viol_enf', f'SDW_VIOL_ENFORCEMENT/PWSID/{PID}/JSON')):
+    try:
+        _, b = get(EF + path, 300)
+        d = json.loads(b)
+        out[label] = {'n': len(d) if isinstance(d, list) else None, 'raw_if_small': d if not isinstance(d, list) else None,
+                      'years': sorted(Counter((x.get('compl_per_begin_date') or '')[:4] for x in d).items()) if isinstance(d, list) else None,
+                      'keys': sorted(d[0].keys()) if isinstance(d, list) and d else None}
+    except Exception as e:
+        out[label] = {'error': repr(e)[:300]}
 try:
-    _, b = get(SITE + 'water.json?t=%d' % time.time()); water = json.loads(b)
+    lm, b = get('https://echo.epa.gov/files/echodownloads/SDWA_latest_downloads.zip', 1500)
+    z = zipfile.ZipFile(io.BytesIO(b))
+    out['echo_sdwa'] = {'last_modified': lm, 'files': z.namelist()}
+    name = next(n for n in z.namelist() if 'VIOLATIONS' in n.upper())
+    rows = []
+    with z.open(name) as raw:
+        rd = csv.DictReader(io.TextIOWrapper(raw, encoding='latin-1', newline=''))
+        out['echo_sdwa']['columns'] = rd.fieldnames
+        for r in rd:
+            if r.get('PWSID') == PID:
+                rows.append(r)
+    vids = {r.get('VIOLATION_ID') for r in rows}
+    out['echo_sdwa'].update({'file': name, 'rows': len(rows), 'distinct_violation_ids': len(vids),
+        'by_year': sorted(Counter((r.get('NON_COMPL_PER_BEGIN_DATE') or r.get('COMPL_PER_BEGIN_DATE') or '')[-4:] for r in rows).items()),
+        'health_based': len({r.get('VIOLATION_ID') for r in rows if r.get('IS_HEALTH_BASED_IND') == 'Y'}),
+        'sample': rows[:3]})
 except Exception as e:
-    water = {'error': repr(e)}
-json.dump({'facs': facs, 'water': water}, open('probe-out/spotcheck-epa.json', 'w'), separators=(',', ':'))
-json.dump({'site_pulled': idx.get('pulled'), 'bulk_file': {'url': url, 'last_modified': lm}, 'cols': keep,
-           'site': site, 'bulk': bulk}, open('probe-out/spotcheck-mines.json', 'w'), separators=(',', ':'))
-print('mines', len(site), 'with bulk rows', len(bulk), 'rows', sum(len(v) for v in bulk.values()))
+    out['echo_sdwa_error'] = repr(e)[:400]
+os.makedirs('probe-out', exist_ok=True)
+json.dump(out, open('probe-out/water-KY0480498.json', 'w'), indent=1, default=str)
+print(json.dumps({k: (v if k != 'echo_sdwa' else {kk: vv for kk, vv in v.items() if kk not in ('sample', 'columns')}) for k, v in out.items()}, default=str)[:3000])
