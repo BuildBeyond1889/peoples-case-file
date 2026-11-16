@@ -200,7 +200,7 @@
     for (const f of [...pickN(active, 3, rnd), ...pickN(mines.filter((f) => f.properties.status !== 'Active' && (f.properties.citations || 0) > 0), 5, rnd)]) {
       const p = f.properties, ids = parse(p.ids, {}), v = parse(p.viol, {}) || {};
       items.push({ key: 'mine:' + ids.msha_mine, kind: 'mine', name: p.name, id: ids.msha_mine, idLabel: 'MSHA mine ID',
-        src: MSHA_LOOKUP, srcName: 'MSHA Mine Data Retrieval System', how: 'Paste the mine ID, open the mine, then compare its overview and its Violations tab.',
+        src: MSHA_LOOKUP, srcName: 'MSHA Mine Data Retrieval System', how: 'On MSHA’s page set the search type to “Mine ID”, paste the ID, press Search, then click the mine in the results. The Mine ID at the top must match before you compare. Citations are under “Violations”.',
         rows: [['Status', p.status || '—'], ['Operator now', p.operator || '—'], ['Controller now', p.parent || '—'],
           ['Citations, all owners', num(v.total || 0) + ' (we leave out contractor and vacated citations, so MSHA’s count can be a bit higher)'], ['Penalties owed', usd(v.due || 0)]] });
     }
@@ -247,6 +247,7 @@
             <div class="chk-h"><b>${esc(i.name)}</b><span class="muted-s">${esc(i.idLabel)} ${esc(i.id)} ${copyBtn(i.id)}</span></div>
             <dl class="chk-rows">${i.rows.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl>
             <p class="muted-s"><a href="${esc(i.src)}" target="_blank" rel="noopener">Open ${esc(i.srcName)} ↗</a> · ${esc(i.how)}</p>
+            <p class="muted-s">First check the agency page shows <b>${esc(i.idLabel)} ${esc(i.id)}</b>. If it shows a different ID, you’re on the wrong record. Search again; it isn’t a mismatch.</p>
             <div class="chk-btns" role="group" aria-label="Result">
               <button type="button" data-cv="yes" aria-pressed="${r.v === 'yes'}">Matches</button>
               <button type="button" data-cv="no" aria-pressed="${r.v === 'no'}">Doesn’t match</button>
