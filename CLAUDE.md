@@ -39,7 +39,8 @@ It needs two depths: **Simple** for residents and **Pro** for lawyers and journa
 - **Not selected yet (kept):** "Gather more", "Easy for anyone", "Wow features".
 - **Status (Nov 16 2026):** live and building. The concept stage is over.
   - **Live site:** https://buildbeyond1889.github.io/peoples-case-file/
-  - **Name:** "Curtain Puller" (dark design).
+  - **Name:** "The People's Case" (renamed Nov 16 from "People's Case File"), with "Curtain Puller" as the tagline. Dark design.
+  - **Installable app:** a PC monogram icon in Instrument Serif (the wordmark font) with a coral rule, an "Install app" button, and a full manifest.
   - Lu reviews it on desktop Chrome and phone.
 
 ## Guardrails (non-negotiable)
@@ -112,7 +113,7 @@ It needs two depths: **Simple** for residents and **Pro** for lawyers and journa
 - **Corrections and right of reply:** the public corrections log and right-of-reply flow aren't built yet (guardrail 7).
 - **Individuals as MSHA controllers:** some controllers are people.
   - Their family pages show the name **only as listed in MSHA records**, labelled "individual, as named in MSHA records", with no address or personal details.
-  - Keep it that way. Consider a softer headline for individuals.
+  - Their pages and map cards **lead with the operating company**; the person appears only as "Listed controller in MSHA records … (individual)". Keep it that way.
 
 ## Pilot towns
 Flint, MI (Genesee County) and Harlan County, KY. Work with local partners: libraries, churches, a law-school environmental clinic.
