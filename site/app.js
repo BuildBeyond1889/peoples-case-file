@@ -192,6 +192,15 @@
     return parts[0] + (parts.length > 1 ? ' + ' + (parts.length - 1) + ' more' : '');
   }
 
+  // Individuals listed as MSHA controllers: lead with the company, show the person only as "listed controller".
+  function leadCompany(names) {
+    const ns = (names || []).filter(Boolean);
+    return ns.length ? ns[0] + (ns.length > 1 ? ' + ' + (ns.length - 1) + ' more' : '') : 'Unnamed operating company';
+  }
+  function listedControllerNote(name) {
+    return `<p class="muted-s">Listed controller in MSHA records: ${esc(name)} (individual). Shown only as named in those records, in that role.</p>`;
+  }
+
   function personLabel(name, type) {
     return (type || '').toUpperCase().startsWith('P') ? `${esc(name)} <span class="muted-s">(individual, as named in MSHA records)</span>` : esc(name);
   }
@@ -246,8 +255,9 @@
     const mines = (f.mines || []).map((m) => ({ ...m, feat: mineById[m.id] }))
       .sort((a, b) => (b.feat?.properties.citations || 0) - (a.feat?.properties.citations || 0));
     show(`
-      <p class="eyebrow">CONTROLLER · ${esc((f.controller_type || 'unknown').toUpperCase())} · MSHA ${esc(f.controller_id)}</p>
-      <h2 class="card-title">${personLabel(f.controller, f.controller_type)}</h2>
+      ${(f.controller_type || '').toUpperCase().startsWith('P')
+        ? `<p class="eyebrow">MINE FAMILY · MSHA CONTROLLER ${esc(f.controller_id)}</p><h2 class="card-title">${esc(leadCompany((f.operators || []).map((o) => o.name)))}</h2>${listedControllerNote(f.controller)}`
+        : `<p class="eyebrow">CONTROLLER · ${esc((f.controller_type || 'unknown').toUpperCase())} · MSHA ${esc(f.controller_id)}</p><h2 class="card-title">${personLabel(f.controller, f.controller_type)}</h2>`}
       <p class="muted-s">At Harlan County mines: ${num(mines.length)} mine${mines.length === 1 ? '' : 's'}, run through ${num((f.operators || []).length)} operating compan${(f.operators || []).length === 1 ? 'y' : 'ies'}.</p>
       ${violStats(v, 'under this controller')}
       <p class="note">Citations are counted under the controller MSHA recorded on the day each was issued.</p>
@@ -595,7 +605,7 @@
           ${(e.flags || []).length ? `<span class="when hot">⚑ ${e.flags.map((x) => esc(x.label)).join(' · ')}</span><button type="button" class="linkbtn" data-letter="${esc(regFacilityLetter(e, parse(p.ids, {})))}">Draft a records request →</button>` : ''}</div>`).join('')}
         <div class="btns"><button type="button" class="btn" data-fpmap="${esc(famState.sel.slice(2))}">Open on the map →</button></div>`;
     } else {
-      panel = `<p class="eyebrow">WHY THESE ARE ONE FAMILY</p><h3 class="fp-ptitle">${personLabel(f.controller, f.controller_type)}</h3>
+      panel = `<p class="eyebrow">WHY THESE ARE ONE FAMILY</p><h3 class="fp-ptitle">${isPerson ? 'One listed controller' : personLabel(f.controller, f.controller_type)}</h3>
         <div class="fp-conf"><span>Confidence</span><b class="steel">High · agency records</b></div>
         <p class="muted-s">MSHA names this ${isPerson ? 'individual' : 'company'} as the controlling entity for ${num(allMines.length)} Harlan County mine${allMines.length === 1 ? '' : 's'}, run through ${num(opList.length)} operating compan${opList.length === 1 ? 'y' : 'ies'}. Every solid line is an MSHA controller record with dates.</p>
         <p class="muted-s">Click any company or mine to see the records behind it.</p>
@@ -628,12 +638,13 @@
       <div class="fp-crumb"><a href="#">Home</a> / <a href="#map/harlan">Harlan County, KY</a> / <span>Controller family</span></div>
       <section class="fp-head">
         <div class="fp-title">
-          <p class="eyebrow">CONTROLLER · ${esc((f.controller_type || 'unknown').toUpperCase())} · MSHA RECORDS</p>
-          <h1 class="serif">${isPerson ? esc(f.controller) + ' <span class="muted-s" style="font-family:var(--sans);font-size:15px">(individual, as named in MSHA records)</span>' : esc(f.controller)}</h1>
+          <p class="eyebrow">${isPerson ? 'MINE FAMILY' : 'CONTROLLER · ' + esc((f.controller_type || 'unknown').toUpperCase())} · MSHA RECORDS</p>
+          <h1 class="serif">${isPerson ? esc(leadCompany([...opList].sort((a, b) => Object.keys(b.mines).length - Object.keys(a.mines).length).map((o) => o.name))) : esc(f.controller)}</h1>
+          ${isPerson ? listedControllerNote(f.controller) : ''}
           <p class="lede2">${num(allMines.length)} mine${allMines.length === 1 ? '' : 's'} pulled into one family from MSHA records · ${num(opList.length)} operating compan${opList.length === 1 ? 'y' : 'ies'} · ${esc(yr(M.first) || '?')}–${M.last ? esc(yr(M.last)) : 'now'}</p>
           <div class="fp-ids"><span>MSHA controller ${esc(f.controller_id)}</span>${opList.slice(0, 4).map((o) => o.id ? `<span class="pro">operator ${esc(o.id)}</span>` : '').join('')}${(() => { const l = leiFor([isPerson ? null : f.controller].filter(Boolean)); return l.length ? l.map((x) => `<span>LEI ${esc(x.e.lei)}</span>`).join('') : `<span>LEI · ${parents ? 'none found' : 'not linked yet'}</span>`; })()}<span>State registry · not linked yet</span></div>
         </div>
-        <div class="btns"><button type="button" class="btn" data-fpmap="__all">Show on the map</button><button type="button" class="btn primary" data-letter="${esc(famLetter)}">Request MSHA records</button>${packBtn('family', f, f.controller + ' family (MSHA controller ' + f.controller_id + ')')}</div>
+        <div class="btns"><button type="button" class="btn" data-fpmap="__all">Show on the map</button><button type="button" class="btn primary" data-letter="${esc(famLetter)}">Request MSHA records</button>${packBtn('family', f, (isPerson ? leadCompany(opList.map((o) => o.name)) + ' mine family' : f.controller + ' family') + ' (MSHA controller ' + f.controller_id + ')')}</div>
       </section>
       <section class="fp-kpis" aria-label="Family totals">
         ${kpi('Mines in family', num(allMines.length), `${num(active)} active now · ${num(opList.length)} compan${opList.length === 1 ? 'y' : 'ies'}`, 'MSHA · ' + esc(f.as_of))}
@@ -652,7 +663,7 @@
           <div class="fp-ghead"><div><h2>Family graph</h2><span class="muted-s">Controller → operating companies → mines. Click anything to see why it’s here.</span></div>
             <div class="fp-asof" role="group" aria-label="As of">${asOfBtns}</div></div>
           <div class="fp-legend"><span><i class="ln solid"></i>MSHA record</span><span><i class="ln dash"></i>Inferred (EPA site match)</span><span><i class="dot" style="background:#E3A44E"></i>Active mine</span><span><i class="dot" style="background:#EE7D67"></i>High-priority EPA flag</span></div>
-          <button type="button" class="fp-root ${famState.sel ? '' : 'sel'}" data-fpsel="">${esc(f.controller)}<span class="muted-s">Controller · MSHA ${esc(f.controller_id)}</span></button>
+          <button type="button" class="fp-root ${famState.sel ? '' : 'sel'}" data-fpsel="">${esc(f.controller)}<span class="muted-s">${isPerson ? 'Listed controller (individual)' : 'Controller'} · MSHA ${esc(f.controller_id)}</span></button>
           <div class="fp-ops">${graph}</div>
         </div>
         <aside class="fp-panel" aria-live="polite">${panel}</aside>
