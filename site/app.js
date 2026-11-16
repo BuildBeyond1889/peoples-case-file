@@ -202,7 +202,7 @@
       items.push({ key: 'mine:' + ids.msha_mine, kind: 'mine', name: p.name, id: ids.msha_mine, idLabel: 'MSHA mine ID',
         src: MSHA_LOOKUP, srcName: 'MSHA Mine Data Retrieval System', how: 'On MSHA’s page set the search type to “Mine ID”, paste the ID, press Search, then click the mine in the results. The Mine ID at the top must match before you compare. Citations are under “Violations”.',
         rows: [['Status', p.status || '—'], ['Operator now', p.operator || '—'], ['Controller now', p.parent || '—'],
-          ['Citations, all owners', num(v.total || 0) + ' (we leave out contractor and vacated citations, so MSHA’s count can be a bit higher)'], ['Penalties owed', usd(v.due || 0)]] });
+          ['Citations, all owners', num(v.total || 0) + ' (we leave out contractor and vacated citations, and MSHA’s live report can include a few citations missing from its downloadable data, so MSHA’s count can be a bit higher)'], ['Penalties assessed', usd(v.due || 0)], ['Paid', usd(v.paid || 0)]] });
     }
     const hi = facFeatures.filter((f) => f.properties.flag_level === 2), rest = facFeatures.filter((f) => f.properties.flag_level !== 2 && f.properties.source_url);
     for (const f of [...pickN(hi, 4, rnd), ...pickN(rest, 4, rnd)]) {
@@ -306,9 +306,9 @@
         <div class="stat"><span class="k">Safety citations</span><span class="v">${num(v.total)}</span><span class="s">${v.first ? esc(v.first.slice(0, 4)) + '–' + esc(v.last.slice(0, 4)) : 'none on record'}</span></div>
         <div class="stat"><span class="k">Serious (S&amp;S)</span><span class="v ${v.sig_sub ? 'warm' : ''}">${num(v.sig_sub)}</span><span class="s">likely to cause injury</span></div>
         <div class="stat"><span class="k">Last 5 years</span><span class="v">${num(v.last5)}</span><span class="s">citations issued</span></div>
-        <div class="stat"><span class="k">Penalties owed</span><span class="v">${usd(v.due)}</span><span class="s ${paidPct !== null && paidPct < 50 ? 'hot' : ''}">${paidPct === null ? '—' : paidPct + '% paid (' + usd(v.paid) + ')'}</span></div>
+        <div class="stat"><span class="k">Penalties assessed</span><span class="v">${usd(v.due)}</span><span class="s ${paidPct !== null && paidPct < 50 ? 'hot' : ''}">${paidPct === null ? '—' : paidPct + '% paid (' + usd(v.paid) + ')'}</span></div>
       </div>
-      <p class="note">“Owed” is the current assessed amount. Unpaid amounts can include penalties still being contested or not yet final.</p>
+      <p class="note">“Assessed” is the current penalty amount MSHA has set. Unpaid amounts can include penalties still being contested or not yet final. Citations not assessed yet count as $0.</p>
       <p class="note pro">Proposed at issue: ${usd(v.proposed)} · vacated citations left out: ${num(v.vacated)}${v.contractor != null ? ' · cited to contractors (not counted): ' + num(v.contractor) : ''}</p>`;
   }
 
@@ -788,7 +788,7 @@
         ${kpi('Mines in family', num(allMines.length), `${num(active)} active now · ${num(opList.length)} compan${opList.length === 1 ? 'y' : 'ies'}`, 'MSHA · ' + esc(f.as_of))}
         ${kpi('Safety citations', num(v.total || 0), `while under this controller · ${num(v.last5 || 0)} in the last 5 years`, 'MSHA violations', (v.last5 || 0) > 0 ? '' : '')}
         ${kpi('Serious (S&amp;S)', num(v.sig_sub || 0), 'likely to cause injury', 'MSHA violations')}
-        ${kpi('Penalties owed', usd(v.due || 0), paidPct == null ? '—' : `${paidPct}% paid (${usd(v.paid || 0)})`, 'MSHA assessments', paidPct != null && paidPct < 50 ? 'hotk' : '')}
+        ${kpi('Penalties assessed', usd(v.due || 0), paidPct == null ? '—' : `${paidPct}% paid (${usd(v.paid || 0)}) · ${usd(Math.max(0, (v.due || 0) - (v.paid || 0)))} unpaid`, 'MSHA assessments', paidPct != null && paidPct < 50 ? 'hotk' : '')}
         ${kpi('EPA sites linked', num(epaLinks.length), `${num(highEpa.length)} high-priority flags`, 'EPA ECHO · inferred links', highEpa.length ? 'hotk' : '')}
         ${kpi('Worst-quarter mines', rated ? num(worst) + '<span class="of"> / ' + num(rated) + '</span>' : '—', 'citations per inspection vs Harlan', 'MSHA inspections')}
         ${!money || !mo.looked ? kpi('Public money received', '<span class="empty">—</span>', 'contracts, loans, grants', money ? 'not looked up for this family yet' : 'not collected yet', 'emptyk')

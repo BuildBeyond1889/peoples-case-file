@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="style.css?v=24">
+<link rel="stylesheet" href="style.css?v=25">
 </head>
 <body class="on-home">
 <header class="top">
@@ -113,7 +113,7 @@
       <li><b>Each citation counts for whoever MSHA recorded as operator and controller on the day it was issued.</b> So a “family” total covers only the years that controller held the mine, while a mine’s own total covers every owner.</li>
       <li>Citations issued to contractors (not the mine operator) and citations later vacated are left out of totals.</li>
       <li><b>“S&amp;S”</b> (significant and substantial) is MSHA’s label for a violation reasonably likely to cause a serious injury.</li>
-      <li><b>“Penalties owed”</b> is the current assessed amount. Unpaid amounts can include penalties still being contested or not yet final.</li>
+      <li><b>“Penalties assessed”</b> is the current penalty amount MSHA has set; we show how much of it is recorded as paid next to it. Unpaid amounts can include penalties still being contested or not yet final. Citations not assessed yet count as $0.</li>
       <li><b>Fair comparisons:</b> big, long-running mines collect more citations simply by being big. Where we rank mines we use citations per inspection (since 2000, at least 10 inspections) compared with the other mines in the county.</li>
     </ul>
   </article>
@@ -161,6 +161,7 @@
   <article id="how-limits"><h2>Limits</h2>
     <ul>
       <li>Agency data has errors and delays. We show it as the agency published it, and the original stays one click away.</li>
+      <li>Agencies’ downloadable data doesn’t always match their own websites. Example from our first spot check: MSHA’s live report for one Harlan mine listed 2 dust-sampling citations that weren’t in MSHA’s downloadable file, so our count was 48 where MSHA’s page showed 50. We build from the downloadable files because they cover every mine; when they differ, the agency page is the one to cite.</li>
       <li>No record of a problem doesn’t mean there was no problem. It can mean nobody looked.</li>
       <li>Coverage is two pilot areas for now: Harlan County, KY and Genesee County (Flint), MI. More are coming.</li>
       <li>Being on this site doesn’t mean anyone broke a law. Several flags describe regulator inaction, not company behavior.</li>
@@ -202,6 +203,6 @@
 </main>
 <footer class="foot">Public records only · every fact links to its source · “linked to” never means “did this” · not legal advice · <a href="#how">How this works</a> · <a href="#corrections">Corrections</a> · <a href="#check">Spot check</a></footer>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=29"></script>
+<script src="app.js?v=30"></script>
 </body>
 </html>
