@@ -98,7 +98,7 @@ It needs two depths: **Simple** for residents and **Pro** for lawyers and journa
 |---|---|
 | `site/` | The website: `index.html`, `app.js` (all UI), `style.css`, `sw.js`, data loaded from `site/data/*.json/geojson` at runtime |
 | `collector/collect.py` | Everything that pulls, archives and builds data |
-| `docs/SPEC.md`, `docs/DATA-SOURCES.md` | Full spec with Lu's ★ selections; source registry |
+| `docs/SPEC.md`, `docs/DATA-SOURCES.md`, `docs/NATIONWIDE.md` | Full spec with Lu’s ★ selections; source registry; **the plan for every US county (Lu’s goal)** |
 | `mockups/` | Original approved screens (sample data). The Curtain Puller redesign lives in a Claude Design canvas |
 | `manual/` | Hand-run results (e.g. `sec.json`) |
 
