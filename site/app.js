@@ -201,7 +201,7 @@
       const p = f.properties, ids = parse(p.ids, {}), v = parse(p.viol, {}) || {};
       items.push({ key: 'mine:' + ids.msha_mine, kind: 'mine', name: p.name, id: ids.msha_mine, idLabel: 'MSHA mine ID',
         src: MSHA_LOOKUP, srcName: 'MSHA Mine Data Retrieval System', how: 'On MSHA’s page set the search type to “Mine ID”, paste the ID, press Search, then click the mine in the results. The Mine ID at the top must match before you compare. Citations are under “Violations”.',
-        rows: [['Status', p.status || '—'], ['Operator now', p.operator || '—'], ['Controller now', p.parent || '—'],
+        rows: [['Status', mineStatus(p.status) || '—'], ['Operator now', p.operator || '—'], ['Controller now', p.parent || '—'],
           ['Citations, all owners', num(v.total || 0) + ' (we leave out contractor and vacated citations, and MSHA’s live report can include a few citations missing from its downloadable data, so MSHA’s count can be a bit higher)'], ['Penalties assessed', usd(v.due || 0)], ['Paid', usd(v.paid || 0)]] });
     }
     const hi = facFeatures.filter((f) => f.properties.flag_level === 2), rest = facFeatures.filter((f) => f.properties.flag_level !== 2 && f.properties.source_url);
@@ -320,6 +320,9 @@
       ${letterKey ? `<div class="btns"><button type="button" class="btn primary" data-letter="${esc(letterKey)}">Draft a records request →</button></div>` : ''}</div>`;
   }
 
+  // MSHA's downloadable data says "NonProducing" where its website says "NonProdActive": a mine that is open but not producing.
+  const MINE_STATUS = { NonProducing: 'Non-producing (open, not producing coal)', NonProdActive: 'Non-producing (open, not producing coal)', TempIdled: 'Temporarily idled', 'Temporarily Idled': 'Temporarily idled' };
+  const mineStatus = (st) => MINE_STATUS[st] || st || '';
   function kindLabel(k, dflt) {
     const parts = String(k || '').split(/,\s*(?=\d{3,6}:)/).map((x) => x.replace(/^\d{3,6}:\s*/, '').trim()).filter(Boolean);
     if (!parts.length) return dflt;
@@ -364,7 +367,7 @@
       `<span class="when">${esc(h.op_start || '?')} → ${esc(h.op_end || 'now')}</span></li>`).join('')}</ol></details>` : '';
     show(`
       ${meta.sample ? '<p><span class="sample">SAMPLE</span></p>' : ''}
-      <p class="eyebrow">${esc((p.kind || 'Mine').toUpperCase())}</p>
+      <p class="eyebrow">${esc(String(p.kind || 'Mine').replace(p.status || '\u0000', mineStatus(p.status)).toUpperCase())}</p>
       <h2 class="card-title">${esc(p.name)}</h2>
       ${violStats(v, 'at this mine')}
       ${fairHtml(parse(p.fair, null))}
@@ -733,7 +736,7 @@
     } else if (famState.sel?.startsWith('m:')) {
       const mf = mineById[famState.sel.slice(2)]; const p = mf.properties; const mv = parse(p.viol, null);
       const per = Object.values(M.ops).flatMap((o) => (o.mines[famState.sel.slice(2)]?.periods || []).map((x) => ({ ...x, op: o.name })));
-      panel = `<p class="eyebrow">MINE · ${esc((p.status || '').toUpperCase())}</p><h3 class="fp-ptitle">${esc(p.name)}</h3>
+      panel = `<p class="eyebrow">MINE · ${esc(mineStatus(p.status).toUpperCase())}</p><h3 class="fp-ptitle">${esc(p.name)}</h3>
         <div class="fp-conf"><span>Link to this controller</span><b class="steel">High · agency record</b></div>
         <ol class="hist">${per.map((x) => `<li>Run by <b>${esc(x.op)}</b><span class="when">under this controller ${esc(x.start || '?')} → ${esc(x.end || 'now')}</span></li>`).join('')}</ol>
         ${violStats(mv, 'at this mine')}

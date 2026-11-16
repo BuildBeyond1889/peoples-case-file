@@ -1,6 +1,6 @@
 // Network-first shell cache. Bump CACHE on every release (and ?v=N in index.html).
-const CACHE = 'pcf-v31';
-const SHELL = ['./', 'index.html', 'style.css?v=25', 'app.js?v=30', 'manifest.webmanifest', 'data/sample.geojson', 'icons/icon-192.png', 'icons/icon-512.png'];
+const CACHE = 'pcf-v32';
+const SHELL = ['./', 'index.html', 'style.css?v=25', 'app.js?v=31', 'manifest.webmanifest', 'data/sample.geojson', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))));
