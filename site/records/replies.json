@@ -1,0 +1,5 @@
+{
+  "_about": "Right of reply. Statements from companies, agencies or officials about their own records, published as submitted (only personal details and abuse removed). Never delete entries; mark withdrawn ones.",
+  "_shape": {"date": "YYYY-MM-DD", "record": {"kind": "mine|family|facility|tri|water", "id": "official ID", "name": "display name"}, "from": "organization", "role": "e.g. operator, regulator", "verified": "how we confirmed the sender", "text": "their statement", "issue": "GitHub issue URL"},
+  "items": []
+}

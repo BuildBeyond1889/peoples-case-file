@@ -1,0 +1,45 @@
+name: Reply to a record (companies, agencies, officials)
+description: If your organization is named on The People's Case, you can publish a response next to its record.
+title: "Reply: "
+labels: [right-of-reply]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Replies are published next to the record, as written, with the date. We only remove personal details (home addresses, private phone numbers) and abuse.
+        We confirm the sender before publishing, usually by a reply from an email address on your organization's own website.
+  - type: input
+    id: record
+    attributes:
+      label: Which record?
+      description: Filled in automatically when you come from the site.
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Page link
+  - type: input
+    id: org
+    attributes:
+      label: Organization
+    validations:
+      required: true
+  - type: input
+    id: role
+    attributes:
+      label: Its role in this record
+      description: For example operator, controller, permit holder, regulator.
+  - type: textarea
+    id: statement
+    attributes:
+      label: Your statement (published as written)
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: How can we confirm you speak for the organization?
+      description: A public work email or phone on your organization's website. This is used only to verify and is not published.
+    validations:
+      required: true

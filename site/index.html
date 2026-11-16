@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=23">
 </head>
 <body class="on-home">
 <header class="top">
@@ -65,6 +65,115 @@
 <section id="familyPage" class="fampage" aria-label="Controller family"></section>
 <section id="treePage" class="fampage treepage" aria-label="World tree"></section>
 <section id="reqPage" class="fampage reqpage" aria-label="My requests"></section>
+<section id="howPage" class="fampage infopage" aria-label="How this works">
+<div class="fp-wrap prose">
+  <div class="fp-crumb"><a href="#">Home</a> / <span>How this works</span></div>
+  <header>
+    <p class="eyebrow">METHODS · PLAIN ENGLISH</p>
+    <h1 class="serif">How this works</h1>
+    <p class="lede2">Everything here comes from public records. This page explains where each number comes from, how we connect records, what each flag means, and what none of it means.</p>
+  </header>
+  <nav class="toc" aria-label="On this page"><a href="#how-sources">Sources</a><a href="#how-links">How records are connected</a><a href="#how-mines">Mine citations</a><a href="#how-flags">Silence flags</a><a href="#how-water">Drinking water</a><a href="#how-ej">Open EJ Score</a><a href="#how-people">People</a><a href="#how-proof">Archive and proof</a><a href="#how-limits">Limits</a><a href="#how-fix">Corrections and replies</a></nav>
+
+  <article id="how-sources"><h2>The short version</h2>
+    <ul>
+      <li><b>Public records only.</b> Government databases, court dockets and registries anyone can look up. Nothing leaked, hacked or behind a login.</li>
+      <li><b>Every fact shows its source</b> and the date we pulled it, and the raw file we pulled is archived with a fingerprint so it can be checked later.</li>
+      <li><b>“Linked to” never means “did this.”</b> A flag is a question worth asking an agency, not a finding of wrongdoing.</li>
+      <li><b>Not legal advice.</b> If something here affects you, talk to a lawyer or your local legal aid office.</li>
+    </ul>
+    <h2>Where the data comes from</h2>
+    <dl class="srcs">
+      <dt>Mines, who runs them, safety citations</dt><dd>U.S. Mine Safety and Health Administration (MSHA) open data: mines, operator and controller history, violations, inspections, yearly production.</dd>
+      <dt>Factories, plants, permitted sites</dt><dd>EPA ECHO (enforcement and compliance), including water-discharge permits (ICIS-NPDES), discharge reports and enforcement actions.</dd>
+      <dt>Toxic releases</dt><dd>EPA Toxics Release Inventory (TRI): pounds each facility reports releasing.</dd>
+      <dt>Drinking water</dt><dd>EPA Safe Drinking Water Information System (SDWIS): water systems, people served, violations.</dd>
+      <dt>Mine permit areas</dt><dd>Kentucky Division of Mine Permits.</dd>
+      <dt>Who owns whom</dt><dd>GLEIF (the global register of legal entities), Kentucky Secretary of State business records, SEC filings.</dd>
+      <dt>Money and influence</dt><dd>USAspending (federal contracts, loans, grants), FEC (federal campaign money), Senate lobbying disclosures, Kentucky Legislative Ethics Commission.</dd>
+      <dt>Courts</dt><dd>CourtListener / RECAP (federal dockets, including bankruptcy).</dd>
+      <dt>Neighborhoods</dt><dd>U.S. Census American Community Survey (5-year estimates) and Census block-group maps.</dd>
+      <dt>Open comment periods</dt><dd>Kentucky and Michigan state permit notices.</dd>
+    </dl>
+    <p class="muted-s">The full list, with links, is in the project’s <a href="https://github.com/BuildBeyond1889/peoples-case-file/blob/main/docs/DATA-SOURCES.md" target="_blank" rel="noopener">data sources file</a>. Data is pulled again every day.</p>
+  </article>
+
+  <article id="how-links"><h2>How records are connected</h2>
+    <p>Different agencies don’t share ID numbers, so connecting them is the hard part. Every connection on the site says which kind it is:</p>
+    <table class="conf"><thead><tr><th>Label</th><th>What it means</th><th>Example</th></tr></thead><tbody>
+      <tr><td><b class="steel">Agency record</b></td><td>The government record itself makes the link.</td><td>MSHA lists this company as the mine’s operator and this entity as its controller, with dates.</td></tr>
+      <tr><td><b class="amber">Inferred</b></td><td>We matched two records ourselves. Shown with a dashed line.</td><td>An EPA site and an MSHA mine within 500 meters that also share a coal-mining code, a Kentucky permit number, or a distinctive word in the name.</td></tr>
+      <tr><td><b>Exact-name match</b></td><td>Two records with exactly the same legal name (ignoring “Inc.”, “LLC” and the like). Similar names never count.</td><td>Matching an MSHA company to GLEIF, the Kentucky business registry, USAspending, FEC or court dockets.</td></tr>
+    </tbody></table>
+    <p>Two different companies can share a name, and one company can appear under slightly different names. When in doubt we leave it unlinked rather than guess.</p>
+  </article>
+
+  <article id="how-mines"><h2>Mine safety citations</h2>
+    <ul>
+      <li><b>Each citation counts for whoever MSHA recorded as operator and controller on the day it was issued.</b> So a “family” total covers only the years that controller held the mine, while a mine’s own total covers every owner.</li>
+      <li>Citations issued to contractors (not the mine operator) and citations later vacated are left out of totals.</li>
+      <li><b>“S&amp;S”</b> (significant and substantial) is MSHA’s label for a violation reasonably likely to cause a serious injury.</li>
+      <li><b>“Penalties owed”</b> is the current assessed amount. Unpaid amounts can include penalties still being contested or not yet final.</li>
+      <li><b>Fair comparisons:</b> big, long-running mines collect more citations simply by being big. Where we rank mines we use citations per inspection (since 2000, at least 10 inspections) compared with the other mines in the county.</li>
+    </ul>
+  </article>
+
+  <article id="how-flags"><h2>Silence flags</h2>
+    <p>A silence flag marks a place where the records show a problem but little or no response from the regulator. Each one is a question to ask the agency. The records request button drafts that question for you.</p>
+    <table class="conf"><thead><tr><th>Flag</th><th>When it appears</th></tr></thead><tbody>
+      <tr><td>Serious noncompliance, no formal enforcement</td><td>EPA itself marks the site in significant noncompliance, and there have been no formal enforcement actions in 5 years.</td></tr>
+      <tr><td>Repeated violations, no penalties</td><td>Out of compliance in at least 4 of the last 12 quarters, with $0 in penalties on record.</td></tr>
+      <tr><td>Warning letters only, no formal action</td><td>At least 3 warning letters or notices of violation in 5 years, and no formal enforcement.</td></tr>
+      <tr><td>Problems on record, not inspected in over 5 years</td><td>Only where there was something to look at: a live water permit plus a record of problems, and no inspection in 5 years.</td></tr>
+      <tr><td>Permit expired, still operating</td><td>A water permit marked expired, or “administratively continued” (expired but kept in force while renewal is pending), often with ongoing noncompliance.</td></tr>
+      <tr><td>Over its limits</td><td>The facility’s own discharge reports show readings above its permit limits. EPA calculates how far over.</td></tr>
+    </tbody></table>
+    <p><b>High priority</b> means a serious gap: serious noncompliance with no enforcement, an expired permit, discharges over limits in 2 or more quarters, 8+ quarters of violations with no penalty, or no inspection despite 4+ quarters out of compliance. Everything else flagged is lower priority.</p>
+  </article>
+
+  <article id="how-water"><h2>Drinking water</h2>
+    <p><b>Health-based</b> violations mean the water went over a legal limit or missed a required treatment step. Monitoring and reporting violations are paperwork problems, counted separately. Lead and Copper Rule counts include monitoring violations under that rule.</p>
+    <p>Federal records only show what agencies formally recorded. They can miss what residents lived through. Flint’s 2014–15 crisis is the reminder: check state records, news and court files too.</p>
+  </article>
+
+  <article id="how-ej"><h2>Open EJ Score</h2>
+    <p>Our own open formula, <b>not</b> EPA’s EJScreen. For each Census block group it combines six ingredients, each turned into a percentile:</p>
+    <ol>
+      <li>Problem sites nearby (EPA sites with silence flags, inside or within a mile; high-priority ones count double)</li>
+      <li>Discharges over permit limits (last 3 years)</li>
+      <li>Toxic releases in pounds (latest year)</li>
+      <li>Mine safety citations (last 5 years)</li>
+      <li>Health-based drinking-water violations of the systems serving the area (5 years)</li>
+      <li>Vulnerability: share of residents below twice the poverty line, under 5 or over 64, compared with the whole state</li>
+    </ol>
+    <p>The score is the weighted average of those percentiles. You can change the weights on the map; nothing is hidden. Records inside an area count fully and records within a mile count half. Record percentiles compare within the county; Census percentiles compare within the state. A high score means more burden on record, not proof of harm to anyone’s health.</p>
+  </article>
+
+  <article id="how-people"><h2>People</h2>
+    <p>This site is about companies, and about officials in their public roles. Private individuals are never profiled. Where an official filing lists a person (a mine controller in MSHA records, an officer in a state business filing), we show the name exactly as filed, in that role only, with no home address or personal details. Pages lead with the company.</p>
+  </article>
+
+  <article id="how-proof"><h2>Archive and proof</h2>
+    <p>Every file we pull is saved unchanged, with its SHA-256 fingerprint, the original web address and the time it was pulled, in a monthly <a href="https://github.com/BuildBeyond1889/peoples-case-file/releases" target="_blank" rel="noopener">public archive</a>. Nothing in it is edited after upload.</p>
+    <p>An <b>evidence pack</b> is a zip of what the page showed, the exact records behind it, and those fingerprints, with instructions to verify. If even one character of a file changed, its fingerprint wouldn’t match.</p>
+  </article>
+
+  <article id="how-limits"><h2>Limits</h2>
+    <ul>
+      <li>Agency data has errors and delays. We show it as the agency published it, and the original stays one click away.</li>
+      <li>No record of a problem doesn’t mean there was no problem. It can mean nobody looked.</li>
+      <li>Coverage is two pilot areas for now: Harlan County, KY and Genesee County (Flint), MI. More are coming.</li>
+      <li>Being on this site doesn’t mean anyone broke a law. Several flags describe regulator inaction, not company behavior.</li>
+    </ul>
+  </article>
+
+  <article id="how-fix"><h2>Corrections and replies</h2>
+    <p>If something is wrong, tell us and we’ll check it against the record. Fixes are listed publicly on the <a href="#corrections">corrections log</a>. Companies, agencies and officials named here can publish a reply next to their record.</p>
+    <div class="btns"><a class="btn" href="#corrections">See corrections and replies</a><a class="btn" href="https://github.com/BuildBeyond1889/peoples-case-file/issues/new?template=correction.yml" target="_blank" rel="noopener">Request a correction</a></div>
+  </article>
+</div>
+</section>
+<section id="corrPage" class="fampage infopage" aria-label="Corrections and replies"></section>
 <main class="wrap">
   <div id="map" aria-label="Map"></div>
   <aside class="panel" id="detail" aria-live="polite">
@@ -90,8 +199,8 @@
     </div>
   </aside>
 </main>
-<footer class="foot">Public records only · every fact links to its source · “linked to” never means “did this” · not legal advice · <a href="https://github.com/BuildBeyond1889/peoples-case-file" target="_blank" rel="noopener">How this works</a></footer>
+<footer class="foot">Public records only · every fact links to its source · “linked to” never means “did this” · not legal advice · <a href="#how">How this works</a> · <a href="#corrections">Corrections</a></footer>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="app.js?v=26"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>

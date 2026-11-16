@@ -110,7 +110,8 @@ It needs two depths: **Simple** for residents and **Pro** for lawyers and journa
   - satellite layers
   - neighbor reports
   - ask-anything with citations
-- **Corrections and right of reply:** the public corrections log and right-of-reply flow aren't built yet (guardrail 7).
+- **Corrections and right of reply (built Nov 16):** `#corrections` page; per-record "Request a correction" / "Publish a reply" links open GitHub issue forms (`.github/ISSUE_TEMPLATE/`) pre-filled with the record key (`mine:<id>`, `family:<id>`, `facility:<frs>`, `tri:<id>`). To publish: verify against the record (and the sender, for replies), then add an entry to `site/records/corrections.json` or `site/records/replies.json`. It shows on the record and in the log. Never delete entries.
+- **How this works:** `#how` (sections `#how-sources` … `#how-fix`). Keep it in sync whenever a flag rule, match rule or score formula changes in `collect.py` or `app.js`.
 - **Individuals as MSHA controllers:** some controllers are people.
   - Their family pages show the name **only as listed in MSHA records**, labelled "individual, as named in MSHA records", with no address or personal details.
   - Their pages and map cards **lead with the operating company**; the person appears only as "Listed controller in MSHA records … (individual)". Keep it that way.

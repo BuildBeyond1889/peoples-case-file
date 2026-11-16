@@ -1,0 +1,5 @@
+{
+  "_about": "Public corrections log. Add an entry for every fix to data or wording that a reader, company or agency pointed out (or that we found ourselves). Never delete entries.",
+  "_shape": {"date": "YYYY-MM-DD", "record": {"kind": "mine|family|facility|tri|water|site", "id": "official ID", "name": "display name"}, "was": "what the site said", "now": "what it says now", "why": "the record that shows the fix", "issue": "GitHub issue URL"},
+  "items": []
+}

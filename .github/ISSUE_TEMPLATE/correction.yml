@@ -1,0 +1,46 @@
+name: Request a correction
+description: Something on The People's Case is wrong, out of date, or matched to the wrong company. Tell us and show the record.
+title: "Correction: "
+labels: [correction]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Every correction is reviewed against the public record and, if it holds up, fixed and listed on the public corrections log.
+        Please don't include anyone's home address, phone number or other private details.
+  - type: input
+    id: record
+    attributes:
+      label: Which record?
+      description: Filled in automatically when you come from the site (for example mine:1500380 or family:0104395).
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Page link
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What's wrong?
+      description: Quote what the site says.
+    validations:
+      required: true
+  - type: textarea
+    id: right
+    attributes:
+      label: What's right, and how do we know?
+      description: Link the public record (agency report, court filing, registry page) that shows it.
+    validations:
+      required: true
+  - type: dropdown
+    id: who
+    attributes:
+      label: You are
+      options:
+        - A member of the public
+        - The company named
+        - A government agency
+        - A journalist or researcher
+        - A lawyer
+        - Other

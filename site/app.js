@@ -158,6 +158,51 @@
     });
   }
 
+  // ---- Right of reply + corrections (static JSON in site/records/, edited by hand from GitHub issues) ----
+  const REPO = 'https://github.com/BuildBeyond1889/peoples-case-file';
+  let replyLog = { items: [] }, corrLog = { items: [] };
+  const recLoaded = Promise.all([
+    getJSON('records/replies.json').then((d) => (replyLog = d)).catch(() => {}),
+    getJSON('records/corrections.json').then((d) => (corrLog = d)).catch(() => {}),
+  ]);
+  const recKey = (kind, id) => `${kind}:${id}`;
+  function issueUrl(tpl, kind, id, name) {
+    const q = new URLSearchParams({ template: tpl + '.yml', title: (tpl === 'reply' ? 'Reply: ' : 'Correction: ') + (name || recKey(kind, id)), record: recKey(kind, id), page: location.href });
+    return `${REPO}/issues/new?${q}`;
+  }
+  // Replies and corrections for one record, plus the two links. Safe to call before the logs load (they're tiny and load first).
+  function recordActions(kind, id, name) {
+    if (!id) return '';
+    const k = recKey(kind, id);
+    const reps = (replyLog.items || []).filter((r) => r.record && recKey(r.record.kind, r.record.id) === k);
+    const cors = (corrLog.items || []).filter((r) => r.record && recKey(r.record.kind, r.record.id) === k);
+    return `<div class="recact">
+      ${reps.map((r) => `<div class="reply"><p class="eyebrow">RESPONSE FROM ${esc((r.from || '').toUpperCase())}${r.role ? ' · ' + esc(r.role.toUpperCase()) : ''} · ${esc(r.date || '')}</p><p class="rtext">${esc(r.text || '')}</p><p class="muted-s">Published as submitted${r.verified ? ' · sender confirmed by ' + esc(r.verified) : ''}${r.issue ? ` · <a href="${esc(r.issue)}" target="_blank" rel="noopener">original</a>` : ''}</p></div>`).join('')}
+      ${cors.map((c) => `<div class="corr"><p class="eyebrow">CORRECTED ${esc(c.date || '')}</p><p class="muted-s">Was: ${esc(c.was || '')}<br>Now: ${esc(c.now || '')}${c.why ? '<br>Why: ' + esc(c.why) : ''}</p></div>`).join('')}
+      <p class="recl"><a href="${esc(issueUrl('correction', kind, id, name))}" target="_blank" rel="noopener">Something wrong? Request a correction</a><a href="${esc(issueUrl('reply', kind, id, name))}" target="_blank" rel="noopener">Named here? Publish a reply</a></p>
+    </div>`;
+  }
+
+  function renderCorrections() {
+    const el = $('corrPage'); const all = [
+      ...(corrLog.items || []).map((x) => ({ ...x, t: 'c' })),
+      ...(replyLog.items || []).map((x) => ({ ...x, t: 'r' })),
+    ].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    el.innerHTML = `<div class="fp-wrap prose">
+      <div class="fp-crumb"><a href="#">Home</a> / <span>Corrections and replies</span></div>
+      <header><p class="eyebrow">ACCOUNTABILITY GOES BOTH WAYS</p><h1 class="serif">Corrections and replies</h1>
+      <p class="lede2">Every fix we make is listed here, permanently. Companies, agencies and officials named on this site can publish a reply next to their record.</p></header>
+      <div class="btns"><a class="btn primary" href="${REPO}/issues/new?template=correction.yml" target="_blank" rel="noopener">Request a correction</a><a class="btn" href="${REPO}/issues/new?template=reply.yml" target="_blank" rel="noopener">Publish a reply</a><a class="btn" href="#how">How this works</a></div>
+      <article><h2>How it works</h2><ul>
+        <li><b>Corrections:</b> anyone can point out a mistake. We check it against the public record. If it holds up, we fix it and list it here: what it said, what it says now, and why.</li>
+        <li><b>Replies:</b> if your organization is named, your statement appears next to the record, as written, with the date. We only remove personal details and abuse, and we confirm the sender first.</li>
+        <li><b>Nothing is deleted from this log.</b></li>
+        <li>Both forms are on GitHub (a free account is needed). Each record on the site has its own links, which fill in the record for you.</li>
+      </ul></article>
+      <article><h2>Log</h2>${all.length ? `<ul class="corrlog">${all.map((x) => `<li><span class="when">${esc(x.date || '')} · ${x.t === 'c' ? 'CORRECTION' : 'REPLY FROM ' + esc((x.from || '').toUpperCase())}</span><b>${esc(x.record?.name || recKey(x.record?.kind, x.record?.id))}</b>${x.t === 'c' ? `<span>Was: ${esc(x.was || '')}</span><span>Now: ${esc(x.now || '')}</span>${x.why ? `<span class="muted-s">Why: ${esc(x.why)}</span>` : ''}` : `<span>${esc(x.text || '')}</span>`}${x.issue ? `<a href="${esc(x.issue)}" target="_blank" rel="noopener">Original request</a>` : ''}</li>`).join('')}</ul>` : '<p class="muted-s">No corrections or replies yet. This log starts with the public launch.</p>'}</article>
+    </div>`;
+  }
+
   function show(html) {
     $('detailBody').innerHTML = html;
     $('detail').scrollTop = 0;
@@ -246,6 +291,7 @@
       <p class="note">Owned by a public company? Its annual report lists the mine by ID (Exhibit 95): <a href="https://www.sec.gov/edgar/search/#/q=${encodeURIComponent(`"${ids.msha_mine}" OR "${String(ids.msha_mine).slice(0, 2)}-${String(ids.msha_mine).slice(2)}"`)}" target="_blank" rel="noopener">search SEC filings for ${esc(ids.msha_mine)}</a>.</p>
       ${flags.length ? `<p class="flag">Data note: ${flags.map(esc).join('; ')}</p>` : ''}
       <p class="src">SOURCE: <a href="${MSHA_LOOKUP}" target="_blank" rel="noopener">MSHA Mine Data Retrieval</a> · search mine ID ${esc(ids.msha_mine)} · pulled ${esc(p.as_of)}</p>
+      ${recordActions('mine', ids.msha_mine, p.name)}
       <p class="src pro">IDS: MSHA mine ${esc(ids.msha_mine)}${ids.msha_controller ? ' · controller ' + esc(ids.msha_controller) : ''}</p>`);
   }
 
@@ -266,7 +312,8 @@
         `<li><button type="button" data-mine="${esc(m.id)}"><span>${esc(m.name || 'Mine ' + m.id)}</span><span class="count">${num(m.feat?.properties.citations || 0)} citations</span></button></li>`).join('')}</ul></details>
       <p class="flag">Not connected yet: parent companies above this controller, and the same company under other MSHA IDs. That’s the next layer of the Curtain Puller.</p>
       ${researchHtml(f.controller, f.controller_type)}
-      <p class="src">SOURCE: MSHA Controller/Operator History + Violations · pulled ${esc(f.as_of)}</p>`);
+      <p class="src">SOURCE: MSHA Controller/Operator History + Violations · pulled ${esc(f.as_of)}</p>
+      ${recordActions('family', f.controller_id, leadCompany((f.operators || []).map((o) => o.name)) + ' mine family')}`);
   }
 
   function showFacility(p, coords) {
@@ -294,6 +341,7 @@
       ${link ? `<div class="btns"><button type="button" class="btn" data-mine="${esc(link.mine_id)}">${link.confidence === 'high' ? 'Same Kentucky mine permit as' : 'Possibly the same site as'} mine: ${esc(link.mine)} →</button></div>` : ''}
       <div class="btns">${packBtn('facility', { ...p, ids }, p.name + (ids.frs ? ' (EPA FRS ' + ids.frs + ')' : ''))}</div>
       <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA ECHO facility report</a>` : 'EPA ECHO'} · ICIS-NPDES permits, inspections and enforcement · ECHO effluent charts · pulled ${esc(p.as_of)}</p>
+      ${recordActions('facility', ids.frs, p.name)}
       <p class="src pro">IDS: FRS ${esc(ids.frs)}${permits.length ? ' · NPDES ' + permits.map((x) => esc(x.id)).join(', ') : ''}${triInfo ? ' · TRI ' + esc(triInfo.tri_id) : ''}</p>`);
   }
 
@@ -398,6 +446,7 @@
           <p class="src"><a href="${esc(r.source_url)}" target="_blank" rel="noopener">EPA TRI facility profile</a></p>`; })()}
       <div class="btns">${packBtn('tri', p, p.name + ' (TRI ' + (ids.tri || '') + ')')}</div>
       <p class="src">SOURCE: ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">EPA facility report</a>` : 'EPA Toxics Release Inventory'} · pulled ${esc(p.as_of)}</p>
+      ${recordActions('tri', ids.tri || ids.frs, p.name)}
       <p class="src pro">IDS: TRI ${esc(ids.tri)}${ids.frs ? ' · FRS ' + esc(ids.frs) : ''}</p>`);
   }
 
@@ -692,7 +741,8 @@
       ${parentsHtml(f, opList, isPerson)}
       ${stateMoneyHtml(f, opList, isPerson)}
       <section class="fp-time"><h2 class="serif">Who ran what, when</h2><p class="muted-s">Each bar is an operating company while this controller held it (MSHA controller records). Open bars are still running.</p>${timeline}</section>
-      <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · USAspending, FEC, lobbying reports, CourtListener, GLEIF, Kentucky Secretary of State (matched by name) · Kentucky mine permits · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice.</p>
+      <p class="src">SOURCES: MSHA Controller/Operator History, Violations, Inspections, Production · EPA ECHO + ICIS-NPDES (inferred site links) · USAspending, FEC, lobbying reports, CourtListener, GLEIF, Kentucky Secretary of State (matched by name) · Kentucky mine permits · pulled ${esc(f.as_of)}. “Linked to” never means “did this.” Not legal advice. <a href="#how">How this works</a>.</p>
+      ${recordActions('family', f.controller_id, isPerson ? leadCompany(opList.map((o) => o.name)) + ' mine family' : f.controller)}
     </div>`;
   }
 
@@ -1412,6 +1462,16 @@ Everything below is what the site showed, built only from public records. “Lin
     const onFam = h.startsWith('family/');
     const onTree = h === 'tree' || h.startsWith('tree/');
     const onReq = h === 'requests' || h.startsWith('requests/');
+    const onHow = h === 'how' || h.startsWith('how-'), onCorr = h === 'corrections';
+    document.body.classList.toggle('on-how', onHow);
+    document.body.classList.toggle('on-corr', onCorr);
+    if (onHow || onCorr) {
+      document.body.classList.remove('on-home', 'on-family', 'on-tree', 'on-req');
+      if (onCorr) { window.scrollTo(0, 0); await recLoaded; renderCorrections(); return; }
+      const t = h.startsWith('how-') && document.getElementById(h);
+      if (t) t.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0);
+      return;
+    }
     document.body.classList.toggle('on-req', onReq);
     if (onReq) { document.body.classList.remove('on-home', 'on-family', 'on-tree'); window.scrollTo(0, 0); renderReqs(h.split('/')[1]); return; }
     document.body.classList.toggle('on-home', !onMap && !onFam && !onTree);
