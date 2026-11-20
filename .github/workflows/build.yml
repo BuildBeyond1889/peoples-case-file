@@ -74,6 +74,12 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Raw archive $TAG" --notes "Unmodified public-record snapshots with SHA-256 manifests. Never edited after upload."
           gh release upload "$TAG" "$FILE"* --clobber
       - uses: actions/configure-pages@v5
+      - name: Add national SEC data (built on Lu's PC, sec-data branch)
+        run: |
+          if git fetch -q --depth=1 origin sec-data 2>/dev/null; then
+            mkdir -p site/sec && git archive FETCH_HEAD sec | tar -x -C site --strip-components=0
+            echo "SEC data: $(cat site/sec/meta.json)" >> "$GITHUB_STEP_SUMMARY"
+          else echo "no sec-data branch yet" >> "$GITHUB_STEP_SUMMARY"; fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

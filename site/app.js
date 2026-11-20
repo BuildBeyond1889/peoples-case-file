@@ -79,7 +79,7 @@
       try { pendingData = await getJSON('data/comments.json'); } catch (e) {}
       try { archiveIdx = await getJSON('data/archive.json'); } catch (e) {}
       try { klec = await getJSON('data/klec.json'); } catch (e) {}
-      try { sec = await getJSON('data/sec.json'); } catch (e) {}
+      try { sec = await getJSON('sec/local.json'); } catch (e) { try { sec = await getJSON('data/sec.json'); } catch (e2) {} }
     } catch (e) {
       const s = await getJSON('data/sample.geojson');
       for (const L of LAYERS) byLayer[L.id] = { type: 'FeatureCollection', features: s.features.filter((f) => f.properties.layer === L.id) };
@@ -1479,13 +1479,14 @@ Everything below is what the site showed, built only from public records. “Lin
     el.innerHTML = `<div class="fp-wrap"><div class="fp-crumb"><a href="#">Home</a> / <span>World tree</span></div>
       <p class="eyebrow">WORLD TREE · GLOBAL LEGAL ENTITY IDENTIFIER INDEX</p>
       <h1 class="serif">Who owns what, anywhere</h1>
-      <p class="lede2">Search any company that holds a Legal Entity Identifier (LEI): most large companies, banks, funds, and anything that trades in financial markets. See the parent it reports, and its subsidiaries in every country.</p>
+      <p class="lede2">Search any US public company by name or ticker: its subsidiaries, who runs it, its big owners and the mines it reports, from SEC filings. Or any company worldwide that holds a Legal Entity Identifier (LEI), with the parents and subsidiaries it reports in every country.</p>
       <form class="tsearch" id="treeForm"><input id="treeQ" type="search" placeholder="Try “Peabody Energy”, “Alpha Metallurgical”, “Javelin Global”" value="${esc(q || '')}" aria-label="Company name"><button>Search</button></form>
       <label class="muted-s"><input type="checkbox" id="treeUS" ${usOnly ? 'checked' : ''}> US-registered companies only</label>
-      <div id="treeResults" class="tres" aria-live="polite">${q ? '<p class="muted-s">Searching…</p>' : ''}</div>
+      <div id="treeSec" class="tres"></div><div id="treeResults" class="tres" aria-live="polite">${q ? '<p class="muted-s">Searching…</p>' : ''}</div>
       <p class="note">Many small private companies (most Kentucky coal LLCs) have no LEI, so they won’t appear here; use the Harlan map and family pages for those. Parents are what each company reported about itself to GLEIF.</p></div>`;
     $('treeForm').onsubmit = (e) => { e.preventDefault(); const v = $('treeQ').value.trim(); if (v) location.hash = '#tree/q/' + encodeURIComponent(v) + ($('treeUS').checked ? '/us' : ''); };
     if (!q) return;
+    const secBox = $('treeSec'); secSearchHtml(q).then((h) => { secBox.innerHTML = h; }).catch(() => {});
     try {
       const j = await gl(`lei-records?filter[fulltext]=${encodeURIComponent(q)}${usOnly ? '&filter[entity.legalAddress.country]=US' : ''}&page[size]=20`);
       const list = (j?.data || []).map(glEnt);
@@ -1558,6 +1559,75 @@ Everything below is what the site showed, built only from public records. “Lin
       </div>`;
     } catch (err) { el.innerHTML = `<div class="fp-wrap"><p class="flag">Could not reach GLEIF right now (${esc(err.message)}).</p><a class="btn" href="#tree">Back to search</a></div>`; }
   }
+  // ---- US public companies (SEC), built weekly on Lu's PC: site/sec/
+  const secNorm = (n) => (n || '').toLowerCase().replace(/\b(llc|l\.l\.c|inc|incorporated|co|corp|corporation|company|ltd|limited|lp|llp|plc|the|of|s\.a|sa|ag|nv|bv|gmbh)\b\.?/g, ' ').match(/[a-z0-9]+/g)?.join(' ') || '';
+  let secIdxP = null, secMetaP = null;
+  const secIdx = () => (secIdxP ||= getJSON('sec/index.json').catch(() => null));
+  const secMeta = () => (secMetaP ||= getJSON('sec/meta.json').catch(() => null));
+  const secShard = async (k) => { const s = k.replace(/ /g, ''); try { return await getJSON(`sec/s/${(s + '_').slice(0, 2)}.json`); } catch (e) { return {}; } };
+  async function secSearchHtml(q) {
+    const [idx, meta] = await Promise.all([secIdx(), secMeta()]);
+    if (!idx) return '';
+    const qn = secNorm(q), qu = q.trim().toUpperCase();
+    const cos = idx.filter((r) => r[2].split(' ').includes(qu) || secNorm(r[1]).startsWith(qn) || (qn.length > 3 && secNorm(r[1]).includes(qn)))
+      .sort((a, b) => (b[2].split(' ').includes(qu)) - (a[2].split(' ').includes(qu)) || a[1].length - b[1].length).slice(0, 12);
+    const sh = qn.length >= 3 ? await secShard(qn) : {};
+    const subs = Object.entries(sh).filter(([k]) => k === qn || k.startsWith(qn + ' ') || (qn.length > 5 && k.startsWith(qn))).slice(0, 12);
+    const coRow = (r) => `<a href="#co/${r[0]}"><span><b>${esc(r[1])}</b>${r[2] ? ` <span class="muted-s">${esc(r[2])}</span>` : ''}</span><span class="muted-s">${esc(r[3] || '')}${r[4] ? ' · ' + esc(r[4].toLowerCase()) : ''}${r[5] ? ` · ${num(r[5])} subsidiaries` : ''}</span></a>`;
+    return `<h3 class="fp-sub">US public companies (SEC)</h3>
+      ${cos.length ? cos.map(coRow).join('') : '<p class="muted-s">No listed US company by that name or ticker.</p>'}
+      ${subs.length ? `<h3 class="fp-sub" style="margin-top:18px">Listed as a subsidiary of a public company</h3>${subs.map(([, arr]) => arr.slice(0, 4).map(([n, cik, co]) => `<a href="#co/${cik}"><span><b>${esc(n)}</b></span><span class="muted-s">in <b>${esc(co)}</b>’s subsidiary list</span></a>`).join('')).join('')}<p class="note">Exact or starts-with name match in the latest annual-report subsidiary list. Similar names can be different companies; open the filing to check.</p>` : ''}
+      <p class="muted-s">${meta ? `${num(meta.companies)} listed companies, ${num(meta.subsidiaries)} subsidiaries, checked ${esc(meta.as_of)}${meta.test_run ? ' (test run, partial)' : ''}.` : ''}</p>
+      <h3 class="fp-sub" style="margin-top:18px">Worldwide (GLEIF)</h3>`;
+  }
+  const filedLink = (s, label) => s ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(label)}</a> <span class="muted-s">${esc(s.form || '')} filed ${esc(s.filed || '')}</span>` : '';
+  const personRole = (p) => [p.director && 'Director', p.officer && (p.title || 'Officer'), p.owner10 && '10%+ owner'].filter(Boolean).join(' · ') || (p.title || 'Insider');
+  const titleCase = (s) => String(s || '').toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  async function renderCompany(cik) {
+    const el = $('treePage');
+    el.innerHTML = '<div class="fp-wrap"><p class="muted-s">Loading SEC records…</p></div>';
+    let c; try { c = await getJSON(`sec/c/${cik}.json`); } catch (e) { el.innerHTML = `<div class="fp-wrap"><p class="flag">No public-company record for CIK ${esc(cik)} yet.</p><a class="btn" href="#tree">Search</a></div>`; return; }
+    const mineIdx = new Map(Object.entries(mineById).map(([k, m]) => [String(k), m]));
+    const onMap = (c.mines || []).filter((id) => mineIdx.has(id));
+    const subKeys = new Set((c.subs || []).map((s) => normName(s.n)));
+    const fams = Object.values(families).filter((f) => [f.controller, ...(f.operators || []).map((o) => o.name)].some((n) => subKeys.has(normName(n)) || normName(n) === normName(c.name)));
+    const people = (c.people || []).filter((p) => p.director || p.officer);
+    const owners10 = (c.people || []).filter((p) => !p.director && !p.officer && p.owner10);
+    const q = encodeURIComponent(c.name);
+    const subsList = (c.subs || []).map((s) => `<li>${esc(s.n)}${s.j ? ` <span class="muted-s">${esc(s.j)}</span>` : ''}</li>`);
+    el.innerHTML = `<div class="fp-wrap">
+      <div class="fp-crumb"><a href="#">Home</a> / <a href="#tree">World tree</a> / <span>${esc(c.name)}</span></div>
+      <section class="fp-head"><div class="fp-title">
+        <p class="eyebrow">US PUBLIC COMPANY · SEC FILER${c.tickers?.length ? ' · ' + esc(c.tickers.join(', ')) : ''}${c.exchanges?.length ? ' (' + esc(c.exchanges.join(', ')) + ')' : ''}</p>
+        <h1 class="serif">${esc(c.name)}</h1>
+        <p class="lede2">${num((c.subs || []).length)} subsidiaries listed · ${num(people.length)} directors and officers on file · ${num((c.owners || []).length)} big-owner filers${c.mines?.length ? ` · ${num(c.mines.length)} mines reported` : ''}</p>
+        <div class="fp-ids"><span>CIK ${esc(c.cik)}</span>${c.hq ? `<span>HQ ${esc(c.hq.split(', ').map((x, i, a) => i === a.length - 1 && x.length <= 3 ? x : titleCase(x)).join(', '))}</span>` : ''}${c.inc ? `<span>Incorporated in ${esc(c.inc)}</span>` : ''}${c.industry ? `<span>${esc(c.industry)}</span>` : ''}</div>
+      </div><div class="btns"><a class="btn" href="${esc(c.edgar)}" target="_blank" rel="noopener">All SEC filings</a><a class="btn" href="#tree/q/${q}">Worldwide tree (GLEIF)</a>${fams.length ? `<a class="btn primary" href="#family/${esc(fams[0].controller_id)}">On our map →</a>` : ''}</div></section>
+      ${fams.length || onMap.length ? `<section class="fp-time"><h2 class="serif">On our map</h2><ul class="mines-list">${fams.map((f) => `<li><a class="rlink" href="#family/${esc(f.controller_id)}">${esc(f.controller)}</a> <span class="muted-s">family page · name appears in this company’s subsidiary list (exact name match, medium confidence)</span></li>`).join('')}${onMap.map((id) => `<li>Mine ${esc(id)}: <b>${esc(mineIdx.get(id).properties.name || '')}</b> <span class="muted-s">listed by MSHA mine ID in its mine safety disclosure (high confidence)</span></li>`).join('')}</ul></section>` : ''}
+      <section class="fp-time"><h2 class="serif">Who runs it</h2>
+        ${people.length ? `<ol class="hist">${people.slice(0, 60).map((p) => `<li><b>${esc(titleCase(p.name))}</b> <span class="muted-s">${esc(personRole(p))}</span><span class="when">latest ${esc(p.form || 'filing')} ${esc(p.last)} · <a href="${esc(p.url)}" target="_blank" rel="noopener">filing</a></span></li>`).join('')}</ol>` : '<p class="muted-s">No insider filings in the last year and a half.</p>'}
+        <p class="note">From insider-trading reports (Forms 3, 4, 5) filed in the last ~18 months, named as filed (last name first). Secretaries and assistants are left off. Board and pay details are in the ${c.proxy ? filedLink(c.proxy, 'proxy statement') : 'proxy statement'}.</p></section>
+      <section class="fp-time"><h2 class="serif">Big owners</h2>
+        ${(c.owners || []).length ? `<ol class="hist">${c.owners.slice(0, 30).map((o) => `<li><b>${esc(o.name)}</b><span class="when">${num(o.filings)} report${o.filings === 1 ? '' : 's'}, latest ${esc(o.form)} ${esc(o.last)} · <a href="${esc(o.url)}" target="_blank" rel="noopener">filing</a></span></li>`).join('')}</ol>` : '<p class="muted-s">No 5%-owner reports in the last 3 years.</p>'}
+        ${owners10.length ? `<p class="muted-s">Also reported owning 10% or more (insider filings): ${owners10.slice(0, 15).map((p) => esc(titleCase(p.name))).join(', ')}.</p>` : ''}
+        <p class="note">Schedule 13D/13G is filed by anyone who owns more than 5% of the stock (13D if they may try to influence the company). A later amendment can report selling below 5%; open the latest filing for the current stake.</p></section>
+      <section class="fp-time"><h2 class="serif">Subsidiaries</h2>
+        ${subsList.length ? `<input type="search" class="subfilter" id="subFilter" placeholder="Filter ${num(subsList.length)} names" aria-label="Filter subsidiaries"><ul class="tkids subs" id="subList">${subsList.join('')}</ul>` : '<p class="muted-s">No subsidiary list found in its latest annual report.</p>'}
+        ${c.subs_src ? `<p class="note">Read from ${filedLink(c.subs_src, c.subs_src.exhibit + ' of its latest annual report')}. Our reading of the list can miss or mangle a line; the filing is the record. Companies may leave out subsidiaries that are not “significant.”</p>` : ''}</section>
+      ${c.mines?.length ? `<section class="fp-time"><h2 class="serif">Mines it reports</h2><p class="muted-s">MSHA mine IDs: ${c.mines.map((id) => esc(id)).join(', ')}</p><p class="note">From ${filedLink(c.mines_src, 'its mine safety disclosure (' + c.mines_src.exhibit + ')')}. Look any ID up in <a href="https://www.msha.gov/data-and-reports/mine-data-retrieval-system" target="_blank" rel="noopener">MSHA’s Mine Data Retrieval System</a>.</p></section>` : ''}
+      ${c.former?.length ? `<section class="fp-time"><h2 class="serif">Former names</h2><ul class="mines-list">${c.former.map((f) => `<li>${esc(f.name)} <span class="muted-s">${esc(f.from)} to ${esc(f.to)}</span></li>`).join('')}</ul></section>` : ''}
+      <section class="fp-time"><h2 class="serif">Dig further</h2><ul class="mines-list">
+        ${c.annual ? `<li>${filedLink(c.annual, 'Latest annual report')}</li>` : ''}
+        <li><a class="rlink" href="https://www.usaspending.gov/search/?hash=&keyword=${q}" target="_blank" rel="noopener">Federal contracts and grants (USAspending)</a></li>
+        <li><a class="rlink" href="https://www.fec.gov/data/receipts/?contributor_employer=${q}" target="_blank" rel="noopener">Political donations by its employees (FEC)</a></li>
+        <li><a class="rlink" href="https://lda.senate.gov/filings/public/filing/search/?client=${q}" target="_blank" rel="noopener">Federal lobbying (Senate LDA)</a></li>
+        <li><a class="rlink" href="https://echo.epa.gov/facilities/facility-search?mediaSelected=all&p_fn=${q}" target="_blank" rel="noopener">EPA facilities by name (ECHO)</a></li>
+        <li><a class="rlink" href="https://www.courtlistener.com/?q=%22${q}%22" target="_blank" rel="noopener">Court cases (CourtListener)</a></li></ul>
+        <p class="note">These search by name, so results can include different companies with similar names.</p></section>
+      <p class="src">SOURCE: SEC EDGAR (company list, latest annual report and exhibits, Schedules 13D/13G, Form 3/4/5 data sets), checked ${esc(c.checked)}. Each item links to its filing; archived copies with SHA-256 are kept by the project. People appear only in their corporate roles as named in filings. “Linked to” never means “did this.”</p>
+    </div>`;
+    const f = $('subFilter'); if (f) f.oninput = () => { const v = f.value.toLowerCase(); for (const li of $('subList').children) li.hidden = v && !li.textContent.toLowerCase().includes(v); };
+  }
   $('treePage').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-kids]'); if (!b) return;
     const li = b.closest('li'); b.disabled = true; b.textContent = '…';
@@ -1574,7 +1644,7 @@ Everything below is what the site showed, built only from public records. “Lin
     const h = location.hash.replace(/^#/, '');
     const onMap = h.startsWith('map');
     const onFam = h.startsWith('family/');
-    const onTree = h === 'tree' || h.startsWith('tree/');
+    const onTree = h === 'tree' || h.startsWith('tree/') || h.startsWith('co/');
     const onReq = h === 'requests' || h.startsWith('requests/');
     const onHow = h === 'how' || h.startsWith('how-'), onCorr = h === 'corrections', onCheck = h === 'check';
     document.body.classList.toggle('on-how', onHow);
@@ -1596,6 +1666,7 @@ Everything below is what the site showed, built only from public records. “Lin
     if (onTree) {
       window.scrollTo(0, 0);
       const parts = h.split('/');
+      if (parts[0] === 'co') { await ready; renderCompany(parts[1].replace(/\D/g, '')); return; }
       if (parts[1] === 'q') { renderTreeSearch(decodeURIComponent(parts[2] || ''), parts[3] === 'us'); return; }
       if (parts[1] && /^[A-Z0-9]{20}$/i.test(parts[1])) { await ready; renderTree(parts[1].toUpperCase()); return; }
       renderTreeSearch('', false); return;

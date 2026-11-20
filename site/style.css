@@ -267,3 +267,7 @@ body.on-check #navMap,body.on-check #navHome{background:none;color:var(--muted)}
 .chk-btns button[aria-pressed=true][data-cv=no]{background:#3A1E1A;border-color:var(--coral);color:#FFD2C8}
 .chk-btns button[aria-pressed=true][data-cv=unsure]{background:#3A2E18;border-color:var(--amber);color:#F5DDB2}
 .chk-note{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}.chk-note textarea{background:var(--bg);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:8px;font:inherit}
+.subfilter{width:100%;max-width:420px;margin:6px 0 10px;padding:8px 10px;border-radius:8px;border:1px solid var(--line,#333);background:transparent;color:inherit}
+.tkids.subs{columns:2;column-gap:28px;max-height:520px;overflow:auto}
+.tkids.subs li{break-inside:avoid}
+@media (max-width:640px){.tkids.subs{columns:1}}

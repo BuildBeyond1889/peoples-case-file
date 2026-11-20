@@ -90,6 +90,10 @@ It needs two depths: **Simple** for residents and **Pro** for lawyers and journa
   - **Data is never committed to git.**
 - **Secrets (optional):** `FEC_API_KEY`, `COURTLISTENER_TOKEN`, `LDA_API_KEY`.
 - **`.github/workflows/probe.yml` + `collector/probe.py`:** a diagnostic script for trying a new source's endpoints before wiring it into `collect.py`. It gets rewritten for each probe.
+- **National public companies (home collector, Nov 20):** `home/sec_national.py` + `home/run.py` run weekly on Lu's Windows PC (Task Scheduler, Sun 3:12 AM, wakes the PC). Lu's PC folder: `Documents\peoples-case-file\` with `repo\` (clone), `private\settings.ini` (contact email SEC requires - SEC rejects no-reply addresses - plus data_dir `D:\pcf-data`; never committed), and `run.bat` / `test.bat` / `schedule.bat`.
+  - Output is force-pushed as a single commit to the **`sec-data` branch** (data stays off main); `build.yml` copies it to `site/sec/` at every build.
+  - Site: `#co/<cik>` company pages (subsidiaries from Exhibit 21 / 20-F Ex 8, insiders from SEC Form 3/4/5 data sets, 13D/13G filers, Ex 95 mine IDs, links to our map) and SEC results on the `#tree` search. `sec/local.json` replaces `manual/sec.json` for family pages and mine cards.
+  - Claude can't run commands on Lu's PC (no device_bash): it writes files into the connected Documents folder and Lu double-clicks.
 - **SEC blocks GitHub's servers:** `collector/sec_local.py` runs on Lu's computer and writes `manual/sec.json` (Exhibit 21 subsidiaries, Exhibit 95 mine IDs). Lu uploads it, and builds copy `manual/` into `site/data/`.
 - **Release habit:** bump the `CACHE` name in `site/sw.js` and the `?v=N` on the CSS/JS tags in `index.html` and `sw.js` every site change.
 
